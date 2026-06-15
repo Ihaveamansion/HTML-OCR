@@ -6,7 +6,6 @@ import io
 import numpy as np
 import tqdm
 
-rng=np.random.default_rng()
 
 
 def gen_string_p2(ln, str_rand):
@@ -81,19 +80,17 @@ def make_html(text,rgb1,rgb2,font):
     """
 
 def render(html, ss_rand):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1000, "height": 1000})
-        page.set_content(html)
-        x1 = int(ss_rand.integers(0, 240))
-        y1 = int(ss_rand.integers(0, 400))
-        x2 = int(ss_rand.integers(760, 1000))
-        y2 = int(ss_rand.integers(600, 1000))
-        img=page.screenshot(
-            clip={"x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1}
-        )
-        browser.close()
-        return img
+    page = browser.new_page(viewport={"width": 1000, "height": 1000})
+    page.set_content(html)
+    x1 = int(ss_rand.integers(0, 240))
+    y1 = int(ss_rand.integers(0, 400))
+    x2 = int(ss_rand.integers(760, 1000))
+    y2 = int(ss_rand.integers(600, 1000))
+    img=page.screenshot(
+        clip={"x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1}
+    )
+    page.close()
+    return img
 
 def generate_rgb(color_rand):
     rgb1=(color_rand.integers(0,8),color_rand.integers(0,8),color_rand.integers(0,8))
@@ -227,9 +224,16 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
         json.dump({"counter": counter, "font_dict": font_dict}, f)
 
 if __name__ == "__main__":
+    rng=np.random.default_rng()
+
+    p = sync_playwright().start()
+    browser = p.chromium.launch(headless=True)
 
     generate_image('imgs', 'imgs.npz', 
         'id.json', int(input("Min length of texts: ")),
         int(input("Max length of texts: ")),
         int(input("Number of pairs to generate: ")),
         int(input("Number of images to generate: ")))
+    
+    browser.close()
+    p.stop()
