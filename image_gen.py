@@ -144,9 +144,11 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
         for key in data.files:
             print(key, data[key].shape)
         imgs=data["imgs"].tolist()
+        labels=data["labels"].tolist()
     except:
         print("Npz not loaded.")
         imgs=[]
+        labels=[]
 
     delete=input("Delete old data? y or 1 for yes")
     # To prevent accidental deletion of data, we ask the user to type in a
@@ -162,6 +164,7 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
                 os.remove(os.path.join(img_path,path))
             counter=0
             imgs=[]
+            labels=[]
     
 
     for _ in tqdm.tqdm(range(num_pairs)):
@@ -188,13 +191,15 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
 
         # add everything to arrays to save to npz later
         imgs.append(rgb)
+        labels.append(prop[1])
 
 
         counter+=1
 
     np.savez_compressed(
         np_path,
-        imgs=np.array(imgs)
+        imgs=np.array(imgs),
+        labels=np.array(labels)
     )
     with open(id_json, "w") as f:
         json.dump({"counter": counter}, f)
