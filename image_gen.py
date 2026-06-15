@@ -6,6 +6,23 @@ import io
 import numpy as np
 import tqdm
 
+def gen_img_prop(id, min_ln, max_ln, fonts):
+    str_ln=np.random.default_rng(id*100).integers(min_ln,max_ln)
+    
+    text=gen_string_p1(str_ln, max_ln, np.random.default_rng(id*100+1))
+
+    rgb1, rgb2, ratio, is_text_darker=generate_rgb(np.random.default_rng(id*100+2))
+
+    font=fonts[np.random.default_rng(id*100+3).integers(0,len(fonts))]
+
+    ss_rand=np.random.default_rng(id*100+4)
+
+    x1 = int(ss_rand.integers(0, 240))
+    y1 = int(ss_rand.integers(0, 400))
+    x2 = int(ss_rand.integers(760, 1000))
+    y2 = int(ss_rand.integers(600, 1000))
+
+    return str_ln, text, rgb1, rgb2, ratio, is_text_darker, font, [x1,x2,y1,y2]
 
 
 def gen_string_p2(ln, str_rand):
@@ -79,15 +96,11 @@ def make_html(text,rgb1,rgb2,font):
     </html>
     """
 
-def render(html, ss_rand):
+def render(html, coords):
     page = browser.new_page(viewport={"width": 1000, "height": 1000})
     page.set_content(html)
-    x1 = int(ss_rand.integers(0, 240))
-    y1 = int(ss_rand.integers(0, 400))
-    x2 = int(ss_rand.integers(760, 1000))
-    y2 = int(ss_rand.integers(600, 1000))
     img=page.screenshot(
-        clip={"x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1}
+        clip={"x": coords[0], "y": coords[2], "width": coords[1] - coords[0], "height": coords[3] - coords[2]}
     )
     page.close()
     return img
@@ -121,7 +134,6 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
     with open(id_json, "r") as f:
         data = json.load(f)
     counter=data["counter"]
-    font_dict=data["font_dict"]
 
     # Load existing npz data to check if it's corrupted,
     # Show if it is, and whether or not it is, ask if
@@ -131,19 +143,9 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
         data=np.load(np_path)
         for key in data.files:
             print(key, data[key].shape)
-        texts=data["text"].tolist()
-        ratios=data["ratio"].tolist()
-        str_lns=data["str_ln"].tolist()
-        font_ids=data["font_ids"].tolist()
-        is_text_darkers=data["is_text_darker"].tolist()
         imgs=data["imgs"].tolist()
     except:
         print("Npz not loaded.")
-        texts=[]
-        ratios=[]
-        str_lns=[]
-        font_ids=[]
-        is_text_darkers=[]
         imgs=[]
 
     delete=input("Delete old data? y or 1 for yes")
@@ -159,36 +161,20 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
             for path in os.listdir(img_path):
                 os.remove(os.path.join(img_path,path))
             counter=0
-            texts=[]
-            ratios=[]
-            str_lns=[]
-            font_ids=[]
-            is_text_darkers=[]
             imgs=[]
     
 
     for _ in tqdm.tqdm(range(num_pairs)):
-        rand=np.random.default_rng(counter*100)
         # randly generate the text length, then the text,
         # then the text and background colors, then the font,
         # then render
         # All the text properties are kept track of in the
         # npz file, for error diagnosis,
         # and the images are saved in a separate folder.
-        str_ln=rand.integers(min_ln,max_ln)
+        
+        prop=gen_img_prop(counter,min_ln,max_ln,fonts)
 
-        str_rand=np.random.default_rng(counter*100+1)
-        text=gen_string_p1(str_ln,max_ln,str_rand)
-
-        rgb_rand=np.random.default_rng(counter*100+2)
-        rgb1, rgb2, ratio, is_text_darker=generate_rgb(rgb_rand)
-
-        font_rand=np.random.default_rng(counter*100+3)
-        font=fonts[font_rand.integers(0, len(fonts))]
-        font_id=font_dict[font]
-
-        ss_rand=np.random.default_rng(counter*100+4)
-        i=render(make_html(text,rgb1,rgb2,font), ss_rand)
+        i=render(make_html(prop[1],prop[2],prop[3],prop[6]), prop[7])
         rgb=Image.open(io.BytesIO(i)).convert("RGB")
         rgb=rgb.resize((100,100))
         rgb=np.array(rgb)
@@ -201,11 +187,6 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
                 f.write(i)
 
         # add everything to arrays to save to npz later
-        texts.append(text)
-        ratios.append(ratio)
-        str_lns.append(str_ln)
-        font_ids.append(font_id)
-        is_text_darkers.append(is_text_darker)
         imgs.append(rgb)
 
 
@@ -213,15 +194,10 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
 
     np.savez_compressed(
         np_path,
-        texts=np.array(texts),
-        ratios=np.array(ratios),
-        str_lns=np.array(str_lns),
-        font_ids=np.array(font_ids),
-        is_text_darkers=np.array(is_text_darkers),
         imgs=np.array(imgs)
     )
     with open(id_json, "w") as f:
-        json.dump({"counter": counter, "font_dict": font_dict}, f)
+        json.dump({"counter": counter}, f)
 
 if __name__ == "__main__":
     rng=np.random.default_rng()
