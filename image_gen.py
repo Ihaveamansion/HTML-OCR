@@ -1,16 +1,16 @@
-import random
 from flask import json
 from playwright.sync_api import sync_playwright
 import os
 from PIL import Image
 import io
 import numpy as np
+import tqdm
+
+rng=np.random.default_rng()
 
 
-
-
-def gen_string_p2(len):
-    # Recursively generate a string of random characters
+def gen_string_p2(ln, str_rand):
+    # Recursively generate a string of rand characters
     # from the pool. The pool includes punctuation, lowercase
     # letters, and uppercase letters.
     pool=['!', ',', '?', '.',
@@ -20,14 +20,14 @@ def gen_string_p2(len):
           'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
           'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
           'U', 'V', 'W', 'X', 'Y', 'Z',]
-    c=random.choice(pool)
-    if len==1:
+    c=pool[str_rand.integers(0, len(pool))]
+    if ln==1:
         return c
-    return gen_string_p2(len-1)+c
+    return (gen_string_p2(ln-1, str_rand)+c)
 
-def gen_string_p1(len, pad_to):
-    s=gen_string_p2(len)
-    pad=pad_to-len
+def gen_string_p1(ln, pad_to, str_rand):
+    s=gen_string_p2(ln, str_rand)
+    pad=pad_to-ln
     return s+'_'*pad
 
 def rel_luminance(rgb):
@@ -80,30 +80,30 @@ def make_html(text,rgb1,rgb2,font):
     </html>
     """
 
-def render(html):
+def render(html, ss_rand):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1000, "height": 1000})
         page.set_content(html)
-        x1 = random.randint(0, 240)
-        y1 = random.randint(0, 400)
-        x2 = random.randint(760, 1000)
-        y2 = random.randint(600, 1000)
+        x1 = int(ss_rand.integers(0, 240))
+        y1 = int(ss_rand.integers(0, 400))
+        x2 = int(ss_rand.integers(760, 1000))
+        y2 = int(ss_rand.integers(600, 1000))
         img=page.screenshot(
             clip={"x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1}
         )
         browser.close()
         return img
 
-def generate_rgb():
-    rgb1=(random.randint(0,8),random.randint(0,8),random.randint(0,8))
-    rgb2=(random.randint(0,8),random.randint(0,8),random.randint(0,8))
+def generate_rgb(color_rand):
+    rgb1=(color_rand.integers(0,8),color_rand.integers(0,8),color_rand.integers(0,8))
+    rgb2=(color_rand.integers(0,8),color_rand.integers(0,8),color_rand.integers(0,8))
     while True:
         v = contrast_ratio(rgb1, rgb2)
         if v[0] >3:
             break
-        rgb1=(random.randint(0,8),random.randint(0,8),random.randint(0,8))
-        rgb2=(random.randint(0,8),random.randint(0,8),random.randint(0,8))
+        rgb1=(color_rand.integers(0,8),color_rand.integers(0,8),color_rand.integers(0,8))
+        rgb2=(color_rand.integers(0,8),color_rand.integers(0,8),color_rand.integers(0,8))
     return rgb1, rgb2, v[0], v[1]
 
 def generate_image(img_path, np_path, id_json, min_ln, max_ln,
@@ -139,7 +139,7 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
         str_lns=data["str_ln"].tolist()
         font_ids=data["font_ids"].tolist()
         is_text_darkers=data["is_text_darker"].tolist()
-        imgs=["imgs"].tolist()
+        imgs=data["imgs"].tolist()
     except:
         print("Npz not loaded.")
         texts=[]
@@ -150,8 +150,12 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
         imgs=[]
 
     delete=input("Delete old data? y or 1 for yes")
+    # To prevent accidental deletion of data, we ask the user to type in a
+    # random code before deleting the old data. If the user does not type
+    # in the correct code, the old data will not be deleted and the new
+    # data will be added on top of it.
     if delete=='1' or delete=='y':
-        code=random.randint(0,10000)
+        code=rng.integers(1000,9999)
         delete=int(input("Delete old data? Type in code " + str(code)+": "))
         if delete==code:
             print("Deleting")
@@ -166,23 +170,28 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
             imgs=[]
     
 
-    for _ in range(num_pairs):
-        if (_ + 1) % (num_pairs // 100) == 0:
-            percent = (_ + 1) / num_pairs * 100
-            print(f"{percent:.0f}%")
-        # Randomly generate the text length, then the text,
+    for _ in tqdm.tqdm(range(num_pairs)):
+        rand=np.random.default_rng(counter*100)
+        # randly generate the text length, then the text,
         # then the text and background colors, then the font,
         # then render
         # All the text properties are kept track of in the
         # npz file, for error diagnosis,
         # and the images are saved in a separate folder.
-        str_ln=random.randint(min_ln,max_ln)
-        text=gen_string_p1(str_ln,max_ln)
-        rgb1, rgb2, ratio, is_text_darker=generate_rgb()
-        font=random.choice(fonts)
+        str_ln=rand.integers(min_ln,max_ln)
+
+        str_rand=np.random.default_rng(counter*100+1)
+        text=gen_string_p1(str_ln,max_ln,str_rand)
+
+        rgb_rand=np.random.default_rng(counter*100+2)
+        rgb1, rgb2, ratio, is_text_darker=generate_rgb(rgb_rand)
+
+        font_rand=np.random.default_rng(counter*100+3)
+        font=fonts[font_rand.integers(0, len(fonts))]
         font_id=font_dict[font]
 
-        i=render(make_html(text,rgb1,rgb2,font))
+        ss_rand=np.random.default_rng(counter*100+4)
+        i=render(make_html(text,rgb1,rgb2,font), ss_rand)
         rgb=Image.open(io.BytesIO(i)).convert("RGB")
         rgb=rgb.resize((100,100))
         rgb=np.array(rgb)
