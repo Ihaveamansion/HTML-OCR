@@ -190,8 +190,9 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
                 f.write(i)
 
         # add everything to arrays to save to npz later
-        imgs.append(rgb)
-        labels.append(prop[1])
+        imgs.append(rgb.ravel())
+        label = [ord(item) for item in prop[1]]
+        labels.append(label)
 
 
         counter+=1

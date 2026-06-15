@@ -3,3 +3,7 @@ imgs.npz
 TODO.txt
 notes.txt
 imgs
+loss_curve
+model
+training_history
+dataset_split.pkl

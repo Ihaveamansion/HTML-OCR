@@ -2,7 +2,7 @@ import json
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
-import pathlib
+import os
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -23,8 +23,33 @@ SAVE_MODEL = "model"
 SAVE_PLOT = "loss_curve"
 
 BATCH_SIZE = 64
-EPOCHS = 20
-LEARNING_RATE = 1e-3
+EPOCHS = 1000
+LEARNING_RATE = 1e-5
+BETA=(0.9, 0.999)
+
+X_SHAPE=30000
+Y_SHAPE=20
+
+model_dims =[
+    [2048, 512, 256, 256],
+    [2048, 1024, 256, 128],
+    [1024, 512, 256, 128],
+    [2048, 512, 128],
+    [1024, 256, 128],
+    [1024, 512, 128],
+    [1024, 512, 256],
+    [512, 256, 128],
+    [2048, 1024],
+    [2048, 512],
+    [1024, 128],
+    [512, 256],
+    [512, 128],
+    [256, 128],
+    [2048],
+    [1024],
+    [512],
+    [256],
+]
 
 
 # =====================================================
@@ -109,9 +134,7 @@ load_existing_scaler = (
 
 if load_existing_scaler == "1":
 
-    scaler_path = input(
-        "Enter scaler .pkl path: "
-    ).strip()
+    scaler_path = "dataset_split.pkl"
 
     with open(scaler_path, "rb") as f:
         loaded = pickle.load(f)
@@ -142,7 +165,7 @@ def make_loader(X, y, batch_size=64, shuffle=True):
     )
 
     y_tensor = torch.tensor(
-        y,
+        y.astype(np.uint8),
         dtype=torch.float32,
     )
 
@@ -189,20 +212,20 @@ class DynamicNet(nn.Module):
     def __init__(self, layer_spec):
         super().__init__()
 
-        layers = []
+        layers = [nn.Linear(X_SHAPE,layer_spec[0]),nn.ReLU()]
 
-        for i, (in_features, out_features) in enumerate(layer_spec):
+        for i in range(len(layer_spec)-1):
 
             layers.append(
                 nn.Linear(
-                    int(in_features),
-                    int(out_features),
+                    int(layer_spec[i]),
+                    int(layer_spec[i+1]),
                 )
             )
+            
+            layers.append(nn.ReLU())
 
-            if i != len(layer_spec) - 1:
-                layers.append(nn.ReLU())
-
+        layers.append(nn.Linear(int(layer_spec[-1]),Y_SHAPE))
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -221,24 +244,19 @@ class DynamicNet(nn.Module):
 #
 # =====================================================
 
-model_dims = np.array(
-    [
-        [
-            [X.shape[1], 256],
-            [256, 128],
-            [128, 10],
-        ]
-    ]
-)
 
-for MODEL_INDEX in range(len(model_dims)):
+
+for m in range(len(model_dims)):
     model = DynamicNet(
-        model_dims[MODEL_INDEX]
+        model_dims[m]
     )
+    MODEL_INDEX=f"E-{EPOCHS}-LR-{LEARNING_RATE}-B1-{str(BETA[0]).split('.')[1]}-B2-{str(BETA[1]).split('.')[1]}"
 
     print("\nModel:")
     print(model)
 
+    if MODEL_INDEX+".pkl" in os.listdir(SAVE_MODEL):
+        continue
 
     # =====================================================
     # Loss / Optimizer
@@ -249,6 +267,7 @@ for MODEL_INDEX in range(len(model_dims)):
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=LEARNING_RATE,
+        betas=BETA
     )
 
 
@@ -357,7 +376,7 @@ for MODEL_INDEX in range(len(model_dims)):
     # =====================================================
 
     with open(
-        SAVE_HISTORY_JSON,
+        os.path.join(SAVE_HISTORY_JSON, MODEL_INDEX)+".json",
         "w",
     ) as f:
 
@@ -369,7 +388,7 @@ for MODEL_INDEX in range(len(model_dims)):
 
     print(
         "Saved history:",
-        SAVE_HISTORY_JSON,
+        os.path.join(SAVE_HISTORY_JSON, MODEL_INDEX)+".json",
     )
 
 
@@ -400,7 +419,7 @@ for MODEL_INDEX in range(len(model_dims)):
     plt.tight_layout()
 
     plt.savefig(
-        MODEL_INDEX/SAVE_PLOT,
+        os.path.join(SAVE_PLOT, MODEL_INDEX),
         dpi=300,
     )
 
@@ -408,7 +427,7 @@ for MODEL_INDEX in range(len(model_dims)):
 
     print(
         "Saved plot:",
-        MODEL_INDEX/SAVE_PLOT,
+        os.path.join(SAVE_PLOT, MODEL_INDEX)+".png",
     )
 
 
@@ -418,12 +437,12 @@ for MODEL_INDEX in range(len(model_dims)):
 
     torch.save(
         model.state_dict(),
-        MODEL_INDEX/SAVE_MODEL,
+        os.path.join(SAVE_MODEL, MODEL_INDEX)+".pkl",
     )
 
     print(
         "Saved model:",
-        MODEL_INDEX/SAVE_MODEL,
+        os.path.join(SAVE_MODEL, MODEL_INDEX)+".pkl",
     )
 
 
