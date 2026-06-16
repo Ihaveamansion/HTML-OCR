@@ -17,7 +17,7 @@ from torch.utils.data import TensorDataset, DataLoader
 # =====================================================
 
 NPZ_PATH = "imgs.npz"
-SCALER = "dataset_split.pkl"
+SCALER = "scaler.pkl"
 SAVE_HISTORY_JSON = "training_history"
 SAVE_MODEL = "model"
 SAVE_PLOT = "loss_curve"

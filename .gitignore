@@ -6,5 +6,5 @@ imgs
 loss_curve
 model
 training_history
-dataset_split.pkl
+dataset_split.npz
 train.py
