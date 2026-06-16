@@ -17,13 +17,14 @@ from torch.utils.data import TensorDataset, DataLoader
 # =====================================================
 
 NPZ_PATH = "imgs.npz"
-SAVE_SPLIT_PKL = "dataset_split.pkl"
+SCALER = "dataset_split.pkl"
 SAVE_HISTORY_JSON = "training_history"
 SAVE_MODEL = "model"
 SAVE_PLOT = "loss_curve"
 
+
 BATCH_SIZE = 64
-EPOCHS = 1000
+EPOCHS = 100
 LEARNING_RATE = 1e-5
 BETA=(0.9, 0.999)
 
@@ -31,9 +32,9 @@ X_SHAPE=30000
 Y_SHAPE=20
 
 model_dims =[
-    [2048, 512, 256, 256],
-    [2048, 1024, 256, 128],
-    [1024, 512, 256, 128],
+#    [2048, 512, 256, 256],
+#    [2048, 1024, 256, 128],
+#    [1024, 512, 256, 128],
     [2048, 512, 128],
     [1024, 256, 128],
     [1024, 512, 128],
@@ -56,101 +57,87 @@ model_dims =[
 # Load Dataset
 # =====================================================
 
-print(f"Loading {NPZ_PATH}")
-
-data = np.load(NPZ_PATH)
-
-X = data["imgs"]
-y = data["labels"]
-
-print("X shape:", X.shape)
-print("y shape:", y.shape)
 
 
 # =====================================================
 # Train / Val / Test Split (80/10/10)
 # =====================================================
 
-X_train, X_temp, y_train, y_temp = train_test_split(
-    X,
-    y,
-    test_size=0.20,
-    random_state=42,
-)
+if input("\nSplit and scale dataset(1) Load existing(0): ").strip().lower() == "1":
 
-X_val, X_test, y_val, y_test = train_test_split(
-    X_temp,
-    y_temp,
-    test_size=0.50,
-    random_state=42,
-)
+    print(f"Loading {NPZ_PATH}")
 
-print("\nDataset split:")
-print("Train:", X_train.shape)
-print("Val  :", X_val.shape)
-print("Test :", X_test.shape)
+    data = np.load(NPZ_PATH)
 
+    X = data["imgs"]
+    y = data["labels"]
 
-# =====================================================
-# Scaling
-# =====================================================
+    print("X shape:", X.shape)
+    print("y shape:", y.shape)
 
-scaler = StandardScaler()
+    print("Splitting dataset...")
 
-X_train = scaler.fit_transform(X_train)
-X_val = scaler.transform(X_val)
-X_test = scaler.transform(X_test)
-
-print("\nSaving split and scaler...")
-
-with open(SAVE_SPLIT_PKL, "wb") as f:
-    pickle.dump(
-        {
-            "X_train": X_train,
-            "X_val": X_val,
-            "X_test": X_test,
-            "y_train": y_train,
-            "y_val": y_val,
-            "y_test": y_test,
-            "scaler": scaler,
-        },
-        f,
+    X_train, X_temp, y_train, y_temp = train_test_split(
+        X,
+        y,
+        test_size=0.20,
+        random_state=42,
     )
 
-print("Saved:", SAVE_SPLIT_PKL)
-
-
-# =====================================================
-# Optional: Read Existing PKL Scaler
-# =====================================================
-
-load_existing_scaler = (
-    input(
-        "\nLoad scaler from another .pkl? (1/0): "
+    X_val, X_test, y_val, y_test = train_test_split(
+        X_temp,
+        y_temp,
+        test_size=0.50,
+        random_state=42,
     )
-    .strip()
-    .lower()
-)
 
-if load_existing_scaler == "1":
+    print("\nDataset split:")
+    print("Train:", X_train.shape)
+    print("Val  :", X_val.shape)
+    print("Test :", X_test.shape)
 
-    scaler_path = "dataset_split.pkl"
+    print("\nScaling dataset...")
 
-    with open(scaler_path, "rb") as f:
-        loaded = pickle.load(f)
+# =====================================================
+# Scale Dataset
+# =====================================================
 
-    if hasattr(loaded, "transform"):
-        scaler = loaded
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_val = scaler.transform(X_val)
+    X_test = scaler.transform(X_test)
 
-    elif isinstance(loaded, dict) and "scaler" in loaded:
-        scaler = loaded["scaler"]
+    print("\nSaving split and scaler...")
+    with open(SCALER, "wb") as f:
+        pickle.dump({
+            "scaler": scaler
+        }, f)
+        
+    np.savez_compressed(
+        "dataset_split.npz",
+        X_train=X_train,
+        y_train=y_train,
+        X_val=X_val,
+        y_val=y_val,
+        X_test=X_test,
+        y_test=y_test,
+    )
 
-    else:
-        raise ValueError(
-            "Could not locate scaler in pkl file."
-        )
+else:
+    data=np.load("dataset_split.npz")
+    X_train = data['X_train']
+    y_train = data['y_train']
 
-    print("Scaler loaded successfully.")
+    X_val = data['X_val']
+    y_val = data['y_val']
+
+    X_test = data['X_test']
+    y_test = data['y_test']
+
+    print("\nDataset loaded from split npz:")
+    print("Train:", X_train.shape)
+    print("Val  :", X_val.shape)
+    print("Test :", X_test.shape)
 
 
 # =====================================================
@@ -231,6 +218,31 @@ class DynamicNet(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+# =====================================================
+# Evaluation
+# =====================================================
+
+def evaluate(loader):
+
+    model.eval()
+
+    total_loss = 0.0
+
+    with torch.no_grad():
+
+        for X_batch, y_batch in loader:
+
+            preds = model(X_batch)
+
+            loss = criterion(
+                preds,
+                y_batch,
+            )
+
+            total_loss += loss.item()
+
+    return total_loss / len(loader)
+
 
 # =====================================================
 # Example 3D Architecture Array
@@ -271,30 +283,6 @@ for m in range(len(model_dims)):
     )
 
 
-    # =====================================================
-    # Evaluation
-    # =====================================================
-
-    def evaluate(loader):
-
-        model.eval()
-
-        total_loss = 0.0
-
-        with torch.no_grad():
-
-            for X_batch, y_batch in loader:
-
-                preds = model(X_batch)
-
-                loss = criterion(
-                    preds,
-                    y_batch,
-                )
-
-                total_loss += loss.item()
-
-        return total_loss / len(loader)
 
 
     # =====================================================
