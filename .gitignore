@@ -11,3 +11,5 @@ train.py
 notes.md
 data.npz
 scaler.pkl
+*.npz
+*.pkl

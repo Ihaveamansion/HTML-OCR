@@ -34,13 +34,9 @@ def gen_string_p2(ln, str_rand):
     # Recursively generate a string of rand characters
     # from the pool. The pool includes punctuation, lowercase
     # letters, and uppercase letters.
-    pool=['!', ',', '?', '.',
-          'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
-          'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
-          'u', 'v', 'w', 'x', 'y', 'z',
-          'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
-          'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
-          'U', 'V', 'W', 'X', 'Y', 'Z',]
+    pool=[]
+    for i in range(34,127):
+        pool.append(chr(i))
     c=pool[str_rand.integers(0, len(pool))]
     if ln==1:
         return c
@@ -49,7 +45,7 @@ def gen_string_p2(ln, str_rand):
 def gen_string_p1(ln, pad_to, str_rand):
     s=gen_string_p2(ln, str_rand)
     pad=pad_to-ln
-    return s+'_'*pad
+    return s+chr(0)*pad
 
 def rel_luminance(rgb):
     def f(c):
@@ -101,13 +97,11 @@ def make_html(text,rgb1,rgb2,font):
     </html>
     """
 
-def render(html, coords, browser):
-    page = browser.new_page(viewport={"width": 1000, "height": 1000})
+def render(html, coords, page):
     page.set_content(html)
     img=page.screenshot(
         clip={"x": coords[0], "y": coords[2], "width": coords[1] - coords[0], "height": coords[3] - coords[2]}
     )
-    page.close()
     return img
 
 def generate_rgb(color_rand):
@@ -127,6 +121,7 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
     
     p = sync_playwright().start()
     browser = p.chromium.launch(headless=True)
+    page = browser.new_page(viewport={"width": 1000, "height": 1000})
 
     fonts=['Arial', 'Verdana', 'Helvetica', 'Times New Roman', 'Courier New', 'Tahoma', 'Trebuchet MS', 'Georgia', 'Garamond', 'Palatino Linotype','Courier New']
 
@@ -140,10 +135,8 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
         
         prop=gen_img_prop(id,min_ln,max_ln,fonts)
 
-        i=render(make_html(prop[1],prop[2],prop[3],prop[6]), prop[7], browser)
-        rgb=Image.open(io.BytesIO(i)).convert("RGB")
-        rgb=rgb.resize((100,100))
-        rgb=np.array(rgb)
+        i=render(make_html(prop[1],prop[2],prop[3],prop[6]), prop[7], page)
+        rgb = np.asarray(Image.open(io.BytesIO(i)).resize((100,100)))
         
 
         # save images to separate folder for error diagnosis,
@@ -156,11 +149,9 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
         imgs.append(rgb)
         label = [ord(item) for item in prop[1]]
         labels.append(np.array(label))
-    
+    page.close()
     browser.close()
     p.stop()
-    imgs=np.array(imgs)
-    labels=np.array(labels)
     return [imgs, labels]
 
 if __name__=='__main__':
@@ -218,4 +209,4 @@ if __name__=='__main__':
     print(imgs.shape)
     print(labels.shape)
 
-    np.savez("data.npz", imgs=imgs, labels=labels)
+    np.savez(f"{num_pairs}.npz", imgs=imgs, labels=labels)
