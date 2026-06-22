@@ -25,7 +25,7 @@ SAVE_PLOT = "loss_curve"
 
 BATCH_SIZE = 64
 EPOCHS = 100
-LEARNING_RATE = 1e-5
+LEARNING_RATE = 1e-3
 BETA=(0.9, 0.999)
 
 X_SHAPE=30000
@@ -264,17 +264,20 @@ for m in range(len(model_dims)):
     )
     MODEL_INDEX=f"E-{EPOCHS}-LR-{LEARNING_RATE}-B1-{str(BETA[0]).split('.')[1]}-B2-{str(BETA[1]).split('.')[1]}"
 
-    print("\nModel:")
-    print(model)
+    for dim in model_dims[m]:
+        MODEL_INDEX += f"-{dim}"
 
     if MODEL_INDEX+".pkl" in os.listdir(SAVE_MODEL):
         continue
+
+    print("\nModel:")
+    print(model)
 
     # =====================================================
     # Loss / Optimizer
     # =====================================================
 
-    criterion = nn.MSELoss()
+    criterion = nn.CrossEntropyLoss()
 
     optimizer = torch.optim.Adam(
         model.parameters(),
