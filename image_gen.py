@@ -1,10 +1,15 @@
-from flask import json
+import json
 from playwright.sync_api import sync_playwright
 import os
 from PIL import Image
 import io
 import numpy as np
 import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
+import time
+
+#uses input image id in order to generate image properties, with each id always the same random properties
 
 def gen_img_prop(id, min_ln, max_ln, fonts):
     str_ln=np.random.default_rng(id*100).integers(min_ln,max_ln)
@@ -96,7 +101,7 @@ def make_html(text,rgb1,rgb2,font):
     </html>
     """
 
-def render(html, coords):
+def render(html, coords, browser):
     page = browser.new_page(viewport={"width": 1000, "height": 1000})
     page.set_content(html)
     img=page.screenshot(
@@ -116,58 +121,16 @@ def generate_rgb(color_rand):
         rgb2=(color_rand.integers(0,8),color_rand.integers(0,8),color_rand.integers(0,8))
     return rgb1, rgb2, v[0], v[1]
 
-def generate_image(img_path, np_path, id_json, min_ln, max_ln,
-                    num_pairs, num_images):
-
-    if num_pairs < num_images:
-        print("Number of pairs must be greater than or equal to number of images.")
-        return
-
-    os.makedirs(img_path, exist_ok=True)
-
-    fonts=['Arial', 'Verdana', 'Helvetica', 'Times New Roman', 'Courier New',
-           'Tahoma', 'Trebuchet MS', 'Georgia', 'Garamond', 'Palatino Linotype',
-           'Courier New']
-
-    # The purpose of the json file is so that we can keep track of
-    # the font ids and counter
-    with open(id_json, "r") as f:
-        data = json.load(f)
-    counter=data["counter"]
-
-    # Load existing npz data to check if it's corrupted,
-    # Show if it is, and whether or not it is, ask if
-    # the user wants to add on top of existing data
-    # or generate completly new data
-    try:
-        data=np.load(np_path)
-        for key in data.files:
-            print(key, data[key].shape)
-        imgs=data["imgs"].tolist()
-        labels=data["labels"].tolist()
-    except:
-        print("Npz not loaded.")
-        imgs=[]
-        labels=[]
-
-    delete=input("Delete old data? y or 1 for yes")
-    # To prevent accidental deletion of data, we ask the user to type in a
-    # random code before deleting the old data. If the user does not type
-    # in the correct code, the old data will not be deleted and the new
-    # data will be added on top of it.
-    if delete=='1' or delete=='y':
-        code=rng.integers(1000,9999)
-        delete=int(input("Delete old data? Type in code " + str(code)+": "))
-        if delete==code:
-            print("Deleting")
-            for path in os.listdir(img_path):
-                os.remove(os.path.join(img_path,path))
-            counter=0
-            imgs=[]
-            labels=[]
+def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
+    imgs=[]
+    labels=[]
     
+    p = sync_playwright().start()
+    browser = p.chromium.launch(headless=True)
 
-    for _ in tqdm.tqdm(range(num_pairs)):
+    fonts=['Arial', 'Verdana', 'Helvetica', 'Times New Roman', 'Courier New', 'Tahoma', 'Trebuchet MS', 'Georgia', 'Garamond', 'Palatino Linotype','Courier New']
+
+    for id in (range(id_start,id_end)):
         # randly generate the text length, then the text,
         # then the text and background colors, then the font,
         # then render
@@ -175,9 +138,9 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
         # npz file, for error diagnosis,
         # and the images are saved in a separate folder.
         
-        prop=gen_img_prop(counter,min_ln,max_ln,fonts)
+        prop=gen_img_prop(id,min_ln,max_ln,fonts)
 
-        i=render(make_html(prop[1],prop[2],prop[3],prop[6]), prop[7])
+        i=render(make_html(prop[1],prop[2],prop[3],prop[6]), prop[7], browser)
         rgb=Image.open(io.BytesIO(i)).convert("RGB")
         rgb=rgb.resize((100,100))
         rgb=np.array(rgb)
@@ -185,37 +148,74 @@ def generate_image(img_path, np_path, id_json, min_ln, max_ln,
 
         # save images to separate folder for error diagnosis,
         # but only if we have not already saved enough
-        if _ < num_images:
-            with open(f"{img_path}/image_{counter}.png", "wb") as f:
+        if id < num_images:
+            with open(f"{img_path}/image_{id}.png", "wb") as f:
                 f.write(i)
 
         # add everything to arrays to save to npz later
-        imgs.append(rgb.ravel())
+        imgs.append(rgb)
         label = [ord(item) for item in prop[1]]
-        labels.append(label)
-
-
-        counter+=1
-
-    np.savez_compressed(
-        np_path,
-        imgs=np.array(imgs),
-        labels=np.array(labels)
-    )
-    with open(id_json, "w") as f:
-        json.dump({"counter": counter}, f)
-
-if __name__ == "__main__":
-    rng=np.random.default_rng()
-
-    p = sync_playwright().start()
-    browser = p.chromium.launch(headless=True)
-
-    generate_image('imgs', 'imgs.npz', 
-        'id.json', int(input("Min length of texts: ")),
-        int(input("Max length of texts: ")),
-        int(input("Number of pairs to generate: ")),
-        int(input("Number of images to generate: ")))
+        labels.append(np.array(label))
     
     browser.close()
     p.stop()
+    imgs=np.array(imgs)
+    labels=np.array(labels)
+    return [imgs, labels]
+
+if __name__=='__main__':
+    img_path='imgs'
+    min_ln=int(input('Min text len: '))
+    max_ln=int(input('Max text len: '))
+    num_pairs=int(input('Num of pairs: '))
+    num_images=int(input('Num of images: '))
+
+    os.makedirs(img_path, exist_ok=True)
+
+    # Set manually or use multiprocessing.cpu_count()
+    num_cores = multiprocessing.cpu_count()
+
+    # Choose how many worker processes to use
+
+    print(f"Detected cores: {num_cores}")
+
+    workers=int(input("Num of workers: "))
+    max_workers = min(workers, num_cores)
+
+    print(f"Using workers: {max_workers}")
+    print(f"Running {num_images} tasks\n")
+
+    split=[]
+    chunk=(num_pairs/max_workers)
+
+    for i in range(max_workers):
+        id_start=chunk*i
+        split.append(
+            [img_path,
+            min_ln,
+            max_ln,
+            int(id_start),
+            int(id_start+chunk),
+            num_images]
+        )
+
+    all_images=[]
+    all_labels=[]
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(generate_image, *arg)
+            for arg in split
+        ]
+
+        for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
+            imgs, label=future.result()
+            all_images.append(imgs)
+            all_labels.append(label)
+
+    imgs = np.concatenate(all_images)
+    labels = np.concatenate(all_labels)
+    print(imgs.shape)
+    print(labels.shape)
+
+    np.savez("data.npz", imgs=imgs, labels=labels)

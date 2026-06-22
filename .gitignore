@@ -8,3 +8,6 @@ model
 training_history
 dataset_split.npz
 train.py
+notes.md
+data.npz
+scaler.pkl
