@@ -9,6 +9,11 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 import time
 
+
+pool=[]
+for i in range(34,127):
+    pool.append(chr(i))
+
 #uses input image id in order to generate image properties, with each id always the same random properties
 
 def gen_img_prop(id, min_ln, max_ln, fonts):
@@ -34,9 +39,6 @@ def gen_string_p2(ln, str_rand):
     # Recursively generate a string of rand characters
     # from the pool. The pool includes punctuation, lowercase
     # letters, and uppercase letters.
-    pool=[]
-    for i in range(34,127):
-        pool.append(chr(i))
     c=pool[str_rand.integers(0, len(pool))]
     if ln==1:
         return c
@@ -45,7 +47,7 @@ def gen_string_p2(ln, str_rand):
 def gen_string_p1(ln, pad_to, str_rand):
     s=gen_string_p2(ln, str_rand)
     pad=pad_to-ln
-    return s+chr(0)*pad
+    return s+chr(33)*pad
 
 def rel_luminance(rgb):
     def f(c):
@@ -78,7 +80,7 @@ def make_html(text,rgb1,rgb2,font):
     # is centered in a 1000x1000 pixel div.
     l=''
     for letter in text:
-        if letter=='_':
+        if ord(letter)==33:
             break
         l=l+letter
     return f"""
@@ -212,6 +214,7 @@ if __name__=='__main__':
 
     imgs = np.concatenate(all_images)
     labels = np.concatenate(all_labels)
+    print(labels)
     imgs = np.transpose(imgs, (0,3,1,2))
     print(imgs.shape)
     print(labels.shape)
