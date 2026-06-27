@@ -21,6 +21,9 @@ SAVE_HISTORY_JSON = "training_history"
 SAVE_MODEL = "model"
 SAVE_PLOT = "loss_curve"
 
+for path in [SAVE_HISTORY_JSON, SAVE_MODEL, SAVE_PLOT]:
+    os.makedirs(path, exist_ok=True)
+
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
@@ -87,9 +90,12 @@ if input("\nSplit and scale dataset(1) Load existing(0): ").strip().lower() == "
     )
 
     print("\nDataset split:")
-    print("Train:", X_train.shape)
-    print("Val  :", X_val.shape)
-    print("Test :", X_test.shape)
+    print("X Train:", X_train.shape)
+    print("y Train:", y_train.shape)
+    print("X Val  :", X_val.shape)
+    print("y Val  :", y_val.shape)
+    print("X Test :", X_test.shape)
+    print("y Test :", y_test.shape)
 
     print("\nScaling dataset...")
 
@@ -148,7 +154,7 @@ def make_loader(X, y, batch_size=64, shuffle=True):
 
     y_tensor = torch.tensor(
         y,
-        dtype=torch.long,
+        dtype=torch.float32,
     )
 
     dataset = TensorDataset(
@@ -346,7 +352,7 @@ for m in range(len(model_dims)):
         test_loader
     )
     history["test_loss"] = float(
-        test_loss
+        test_loss   
     )
     print(
         f"\nFinal Test Loss: "
