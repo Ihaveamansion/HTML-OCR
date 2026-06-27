@@ -1,15 +1,10 @@
-id.json
-imgs.npz
-TODO.txt
-notes.txt
+*.txt
 imgs
 loss_curve
 model
 training_history
-dataset_split.npz
 train.py
 notes.md
-data.npz
-scaler.pkl
 *.npz
 *.pkl
+*json

@@ -16,40 +16,35 @@ from torch.utils.data import TensorDataset, DataLoader
 # Configuration
 # =====================================================
 
-NPZ_PATH = "imgs.npz"
-SCALER = "scaler.pkl"
+NPZ_PATH = "100000.npz"
 SAVE_HISTORY_JSON = "training_history"
 SAVE_MODEL = "model"
 SAVE_PLOT = "loss_curve"
 
 
+device = torch.device(
+    "cuda" if torch.cuda.is_available() else "cpu"
+)
 BATCH_SIZE = 64
 EPOCHS = 100
 LEARNING_RATE = 1e-3
 BETA=(0.9, 0.999)
 
-X_SHAPE=30000
 Y_SHAPE=20
 
 model_dims =[
-#    [2048, 512, 256, 256],
-#    [2048, 1024, 256, 128],
-#    [1024, 512, 256, 128],
-    [2048, 512, 128],
-    [1024, 256, 128],
-    [1024, 512, 128],
-    [1024, 512, 256],
-    [512, 256, 128],
-    [2048, 1024],
-    [2048, 512],
-    [1024, 128],
-    [512, 256],
-    [512, 128],
-    [256, 128],
+    [1024,1024],
+    [1024,512],
+    [1024,256],
+    [512,512],
+    [512,256],
+    [512,128],
+    [256,256],
+    [256,128],
+    [256,64],
     [2048],
     [1024],
     [512],
-    [256],
 ]
 
 
@@ -103,15 +98,15 @@ if input("\nSplit and scale dataset(1) Load existing(0): ").strip().lower() == "
 # =====================================================
 
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_val = scaler.transform(X_val)
-    X_test = scaler.transform(X_test)
+    X_train = X_train.astype("float32") / 255.0
+    X_val = X_val.astype("float32") / 255.0
+    X_test = X_test.astype("float32") / 255.0
 
-    print("\nSaving split and scaler...")
-    with open(SCALER, "wb") as f:
-        pickle.dump({
-            "scaler": scaler
-        }, f)
+    """X_train = X_train.reshape(len(X_train), -1)
+    X_val   = X_val.reshape(len(X_val), -1)
+    X_test  = X_test.reshape(len(X_test), -1)"""
+
+
         
     np.savez_compressed(
         "dataset_split.npz",
@@ -152,8 +147,8 @@ def make_loader(X, y, batch_size=64, shuffle=True):
     )
 
     y_tensor = torch.tensor(
-        y.astype(np.uint8),
-        dtype=torch.float32,
+        y,
+        dtype=torch.long,
     )
 
     dataset = TensorDataset(
@@ -198,9 +193,19 @@ class DynamicNet(nn.Module):
 
     def __init__(self, layer_spec):
         super().__init__()
-
-        layers = [nn.Linear(X_SHAPE,layer_spec[0]),nn.ReLU()]
-
+        
+        layers = [nn.Conv2d(
+            in_channels=3,
+            out_channels=32,
+            kernel_size=3,
+            padding=1
+        ),]
+        layers.append(nn.ReLU())
+        layers.append(nn.MaxPool2d(2))
+        layers.append(nn.MaxPool2d(2))
+        layers.append(nn.Flatten())
+        layers.append(nn.Linear(20000,layer_spec[0]))
+        layers.append(nn.ReLU())
         for i in range(len(layer_spec)-1):
 
             layers.append(
@@ -231,7 +236,8 @@ def evaluate(loader):
     with torch.no_grad():
 
         for X_batch, y_batch in loader:
-
+            X_batch = X_batch.to(device)
+            y_batch = y_batch.to(device)
             preds = model(X_batch)
 
             loss = criterion(
@@ -273,6 +279,7 @@ for m in range(len(model_dims)):
     print("\nModel:")
     print(model)
 
+    model.to(device)
     # =====================================================
     # Loss / Optimizer
     # =====================================================
@@ -298,52 +305,39 @@ for m in range(len(model_dims)):
     }
 
     for epoch in range(EPOCHS):
-
         model.train()
-
         running_loss = 0.0
-
         for X_batch, y_batch in train_loader:
-
+            X_batch = X_batch.to(device)
+            y_batch = y_batch.to(device)
             preds = model(X_batch)
-
             loss = criterion(
                 preds,
                 y_batch,
             )
 
-            optimizer.zero_grad()
-
+            optimizer.zero_grad(set_to_none=True)
             loss.backward()
-
             optimizer.step()
-
             running_loss += loss.item()
-
         train_loss = (
             running_loss
             / len(train_loader)
         )
-
         val_loss = evaluate(
             val_loader
         )
-
         history["train_loss"].append(
             train_loss
         )
-
         history["val_loss"].append(
             val_loss
         )
-
         print(
             f"Epoch {epoch+1:3d}/{EPOCHS} | "
             f"Train: {train_loss:.6f} | "
             f"Val: {val_loss:.6f}"
         )
-
-
     # =====================================================
     # Test Evaluation
     # =====================================================
@@ -351,17 +345,13 @@ for m in range(len(model_dims)):
     test_loss = evaluate(
         test_loader
     )
-
     history["test_loss"] = float(
         test_loss
     )
-
     print(
         f"\nFinal Test Loss: "
         f"{test_loss:.6f}"
     )
-
-
     # =====================================================
     # Save History JSON
     # =====================================================
@@ -370,19 +360,16 @@ for m in range(len(model_dims)):
         os.path.join(SAVE_HISTORY_JSON, MODEL_INDEX)+".json",
         "w",
     ) as f:
-
+        
         json.dump(
             history,
             f,
             indent=4,
         )
-
     print(
         "Saved history:",
         os.path.join(SAVE_HISTORY_JSON, MODEL_INDEX)+".json",
     )
-
-
     # =====================================================
     # Save Plot
     # =====================================================
@@ -390,32 +377,25 @@ for m in range(len(model_dims)):
     plt.figure(
         figsize=(10, 6)
     )
-
     plt.plot(
         history["train_loss"],
         label="Train Loss",
     )
-
     plt.plot(
         history["val_loss"],
         label="Validation Loss",
     )
-
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.title("Training History")
     plt.legend()
     plt.grid(True)
-
     plt.tight_layout()
-
     plt.savefig(
         os.path.join(SAVE_PLOT, MODEL_INDEX),
         dpi=300,
     )
-
     plt.close()
-
     print(
         "Saved plot:",
         os.path.join(SAVE_PLOT, MODEL_INDEX)+".png",
@@ -435,8 +415,6 @@ for m in range(len(model_dims)):
         "Saved model:",
         os.path.join(SAVE_MODEL, MODEL_INDEX)+".pkl",
     )
-
-
     # =====================================================
     # Example Loading Saved Scaler Later
     # =====================================================
@@ -448,5 +426,4 @@ for m in range(len(model_dims)):
     # X_new = scaler.transform(X_new)
     #
     # =====================================================
-
     print("\nTraining complete.")
