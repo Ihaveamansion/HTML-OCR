@@ -20,24 +20,24 @@ NPZ_PATH = "100000.npz"
 SAVE_HISTORY_JSON = "training_history"
 SAVE_MODEL = "model"
 SAVE_PLOT = "loss_curve"
+NUM_CLASSES = 94
+WEIGHT_DECAY = 1e-4
 
 for path in [SAVE_HISTORY_JSON, SAVE_MODEL, SAVE_PLOT]:
     os.makedirs(path, exist_ok=True)
 
 
-device = torch.device(
-    "cuda" if torch.cuda.is_available() else "cpu"
-)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 64
 EPOCHS = 100
-LEARNING_RATE = 1e-2
+LEARNING_RATE = 1e-3
 BETA=(0.9, 0.999)
 
 Y_SHAPE=20
 
 model_dims =[
-    [1024,1024],
-    [1024,512],
+    [[1024, 512, 256],[0.3,0.3,0]],
+"""    [1024,512],
     [1024,256],
     [512,512],
     [512,256],
@@ -47,7 +47,7 @@ model_dims =[
     [256,64],
     [2048],
     [1024],
-    [512],
+    [512],"""
 ]
 
 
@@ -104,9 +104,9 @@ if input("\nSplit and scale dataset(1) Load existing(0): ").strip().lower() == "
 # =====================================================
 
     scaler = StandardScaler()
-    X_train = X_train.astype("float32") / 255.0
-    X_val = X_val.astype("float32") / 255.0
-    X_test = X_test.astype("float32") / 255.0
+    X_train = X_train.astype("float32") / 8.0
+    X_val = X_val.astype("float32") / 8.0
+    X_test = X_test.astype("float32") / 8.0
 
     """X_train = X_train.reshape(len(X_train), -1)
     X_val   = X_val.reshape(len(X_val), -1)
@@ -154,7 +154,7 @@ def make_loader(X, y, batch_size=64, shuffle=True):
 
     y_tensor = torch.tensor(
         y,
-        dtype=torch.float32,
+        dtype=torch.long,
     )
 
     dataset = TensorDataset(
@@ -208,26 +208,36 @@ class DynamicNet(nn.Module):
         ),]
         layers.append(nn.ReLU())
         layers.append(nn.MaxPool2d(2))
+        layers = [nn.Conv2d(
+            in_channels=3,
+            out_channels=32,
+            kernel_size=3,
+            padding=1
+        ),]
+        layers.append(nn.ReLU())
         layers.append(nn.MaxPool2d(2))
         layers.append(nn.Flatten())
-        layers.append(nn.Linear(20000,layer_spec[0]))
+        layers.append(nn.Linear(80000,layer_spec[0][0]))
         layers.append(nn.ReLU())
-        for i in range(len(layer_spec)-1):
+        layers.append(nn.Dropout(layer_spec[1][0]))
+        for i in range(len(layer_spec[0])-1):
 
             layers.append(
                 nn.Linear(
-                    int(layer_spec[i]),
-                    int(layer_spec[i+1]),
+                    int(layer_spec[0][i]),
+                    int(layer_spec[0][i+1]),
                 )
             )
-            
             layers.append(nn.ReLU())
+            layers.append(nn.Dropout(layer_spec[1][i+1]))
 
-        layers.append(nn.Linear(int(layer_spec[-1]),Y_SHAPE))
-        self.net = nn.Sequential(*layers)
+        self.net = nn.Sequential(*layers[:-1])
+        self.final_layer = nn.Linear(int(layer_spec[0][-1]), NUM_CLASSES * Y_SHAPE)
 
     def forward(self, x):
-        return self.net(x)
+        x = self.net(x)
+        x = self.final_layer(x)
+        return x.view(-1, NUM_CLASSES, Y_SHAPE)
 
 # =====================================================
 # Evaluation
@@ -243,9 +253,10 @@ def evaluate(loader):
 
         for X_batch, y_batch in loader:
             X_batch = X_batch.to(device)
+            y_batch = y_batch.reshape(-1)
             y_batch = y_batch.to(device)
             preds = model(X_batch)
-
+            preds = preds.reshape(-1, NUM_CLASSES)
             loss = criterion(
                 preds,
                 y_batch,
@@ -295,7 +306,8 @@ for m in range(len(model_dims)):
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=LEARNING_RATE,
-        betas=BETA
+        betas=BETA,
+        weight_decay=WEIGHT_DECAY
     )
 
 
