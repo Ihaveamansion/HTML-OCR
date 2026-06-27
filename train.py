@@ -30,7 +30,7 @@ device = torch.device(
 )
 BATCH_SIZE = 64
 EPOCHS = 100
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 1e-2
 BETA=(0.9, 0.999)
 
 Y_SHAPE=20
