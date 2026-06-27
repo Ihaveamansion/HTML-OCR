@@ -134,8 +134,10 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
         # and the images are saved in a separate folder.
         
         prop=gen_img_prop(id,min_ln,max_ln,fonts)
-
-        i=render(make_html(prop[1],prop[2],prop[3],prop[6]), prop[7], page)
+        try:
+            i=render(make_html(prop[1],prop[2],prop[3],prop[6]), prop[7], page)
+        except:
+            return id
         rgb = np.asarray(Image.open(io.BytesIO(i)).resize((100,100)))
         
 
@@ -152,6 +154,8 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
     page.close()
     browser.close()
     p.stop()
+    if (np.array(imgs).ndim)==(1):
+        return id
     return [imgs, labels]
 
 if __name__=='__main__':
@@ -174,7 +178,7 @@ if __name__=='__main__':
     max_workers = min(workers, num_cores)
 
     print(f"Using workers: {max_workers}")
-    print(f"Running {num_images} tasks\n")
+    print(f"Running {num_pairs} tasks\n")
 
     split=[]
     chunk=(num_pairs/max_workers)
@@ -192,21 +196,26 @@ if __name__=='__main__':
 
     all_images=[]
     all_labels=[]
-
+    errors=[]
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(generate_image, *arg)
             for arg in split
         ]
 
-        for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
+        for future in as_completed(futures):
+            if len(future.result())!=2:
+                errors.append(future.result())
             imgs, label=future.result()
             all_images.append(imgs)
             all_labels.append(label)
 
     imgs = np.concatenate(all_images)
     labels = np.concatenate(all_labels)
+    imgs = np.transpose(imgs, (0,3,1,2))
     print(imgs.shape)
     print(labels.shape)
-
+    print(errors)
+    with open('errors.json', 'w') as f:
+        json.dump(errors, f)
     np.savez(f"{num_pairs}.npz", imgs=imgs, labels=labels)
