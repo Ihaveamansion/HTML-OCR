@@ -169,10 +169,14 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end):
 
 if __name__=='__main__':
     img_path='imgs'
-    min_ln=int(input('Min text len: '))
-    max_ln=int(input('Max text len: '))
-    start=int(input('Start id: '))
-    end=int(input('End id: '))
+    #min_ln=int(input('Min text len: '))
+    #max_ln=int(input('Max text len: '))
+    #start=int(input('Start id: '))
+    #end=int(input('End id: '))
+    min_ln=1
+    max_ln=20
+    start=0
+    end=5000000
     num_pairs=end-start
 
     # Set manually or use multiprocessing.cpu_count()
@@ -182,7 +186,8 @@ if __name__=='__main__':
 
     print(f"Detected cores: {num_cores}")
 
-    workers=int(input("Num of workers: "))
+    #workers=int(input("Num of workers: "))
+    workers=100
     max_workers = min(workers, num_cores)
 
     print(f"Using workers: {max_workers}")
