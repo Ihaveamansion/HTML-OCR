@@ -9,7 +9,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 import time
 
-NPZ_PATH='./npy/'
+NPZ_PATH='./npz/'
+os.makedirs('./npz',exist_ok=True)
 
 
 pool=[]
@@ -149,8 +150,8 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end):
             errors.append(id)
             continue
         rgb = np.asarray(Image.open(io.BytesIO(i)).resize((200,200)))
+        rgb = rgb/32
         rgb = rgb.astype(np.uint8)
-        rgb /= 32.0
         
 
         # add everything to arrays to save to npz later
@@ -170,11 +171,9 @@ if __name__=='__main__':
     img_path='imgs'
     min_ln=int(input('Min text len: '))
     max_ln=int(input('Max text len: '))
-    start=int(input('Num of pairs: '))
-    end=int(input('Num of pairs: '))
-    num_pairs=start-end
-
-    os.makedirs(img_path, exist_ok=True)
+    start=int(input('Start id: '))
+    end=int(input('End id: '))
+    num_pairs=end-start
 
     # Set manually or use multiprocessing.cpu_count()
     num_cores = multiprocessing.cpu_count()
@@ -218,12 +217,9 @@ if __name__=='__main__':
                 print('fail')
                 exit()
             imgs, label, errors, ids=result[0]
-            imgs = np.concatenate(imgs)
             imgs = np.transpose(imgs, (0,3,1,2))
-            labels = np.concatenate(labels)
-            ids = np.concatenate(ids)
             all_ids.append(np.array(ids))
-            np.savez(NPZ_PATH+f"{result[1][0]}-{result[1][1]}.npy", imgs=imgs, labels=labels, ids=ids)
+            np.savez(NPZ_PATH+f"{result[1][0]}-{result[1][1]}.npz", imgs=imgs, labels=label, ids=ids)
 
 """    imgs = np.concatenate(all_images)
     labels = np.concatenate(all_labels)

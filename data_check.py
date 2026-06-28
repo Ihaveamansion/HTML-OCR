@@ -3,7 +3,7 @@ from PIL import Image
 import json
 import os
 
-NP_PATH='100.npz'
+NP_PATH='npz/0-8.npz'
 CHECK_PATH='./check'
 
 os.makedirs(CHECK_PATH, exist_ok=True)
