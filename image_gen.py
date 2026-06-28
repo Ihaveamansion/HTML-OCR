@@ -147,7 +147,8 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
             errors.append(id)
             continue
         rgb = np.asarray(Image.open(io.BytesIO(i)).resize((100,100)))
-        rgb/=32
+        rgb = rgb.astype(np.float32)
+        rgb /= 32.0
         
 
         # save images to separate folder for error diagnosis,
@@ -216,18 +217,25 @@ if __name__=='__main__':
         ]
 
         for future in as_completed(futures):
-            if type(future.result())=='string':
+            result=future.result()
+            if type(result) is str:
                 print('fail')
                 exit()
-            imgs, label, errors, ids=future.result()
+            imgs, label, errors, ids=result
             all_images.append(imgs)
             all_labels.append(label)
             all_errors.append(errors)
-            all_ids.append(ids)
+            all_ids.append(np.array(ids))
 
     imgs = np.concatenate(all_images)
     labels = np.concatenate(all_labels)
-    ids = np.concatenate(ids)
+    ids = np.concatenate(all_ids)
+
+    order = np.argsort(ids)
+    imgs = imgs[order]
+    labels = labels[order]
+    ids = ids[order]
+
     print(labels)
     imgs = np.transpose(imgs, (0,3,1,2))
     print(imgs.shape)
