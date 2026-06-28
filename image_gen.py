@@ -11,7 +11,10 @@ import time
 
 
 pool=[]
-for i in range(34,127):
+for i in range(65,91):
+    pool.append(chr(i))
+    
+for i in range(97,123):
     pool.append(chr(i))
 
 #uses input image id in order to generate image properties, with each id always the same random properties
@@ -47,7 +50,7 @@ def gen_string_p2(ln, str_rand):
 def gen_string_p1(ln, pad_to, str_rand):
     s=gen_string_p2(ln, str_rand)
     pad=pad_to-ln
-    return s+chr(33)*pad
+    return s+chr(64)*pad
 
 def rel_luminance(rgb):
     def f(c):
@@ -80,7 +83,7 @@ def make_html(text,rgb1,rgb2,font):
     # is centered in a 1000x1000 pixel div.
     l=''
     for letter in text:
-        if ord(letter)==33:
+        if ord(letter)==64:
             break
         l=l+letter
     return f"""
@@ -120,6 +123,8 @@ def generate_rgb(color_rand):
 def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
     imgs=[]
     labels=[]
+    errors=[]
+    ids=[]
     
     p = sync_playwright().start()
     browser = p.chromium.launch(headless=True)
@@ -139,8 +144,10 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
         try:
             i=render(make_html(prop[1],prop[2],prop[3],prop[6]), prop[7], page)
         except:
-            return id
+            errors.append(id)
+            continue
         rgb = np.asarray(Image.open(io.BytesIO(i)).resize((100,100)))
+        rgb/=32
         
 
         # save images to separate folder for error diagnosis,
@@ -153,12 +160,14 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
         imgs.append(rgb)
         label = [ord(item) for item in prop[1]]
         labels.append(np.array(label))
+        ids.append(id)
+
     page.close()
     browser.close()
     p.stop()
     if (np.array(imgs).ndim)==(1):
-        return id
-    return [imgs, labels]
+        return 'fail'
+    return [imgs, labels, errors, ids]
 
 if __name__=='__main__':
     img_path='imgs'
@@ -198,7 +207,8 @@ if __name__=='__main__':
 
     all_images=[]
     all_labels=[]
-    errors=[]
+    all_errors=[]
+    all_ids=[]
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(generate_image, *arg)
@@ -206,19 +216,24 @@ if __name__=='__main__':
         ]
 
         for future in as_completed(futures):
-            if len(future.result())!=2:
-                errors.append(future.result())
-            imgs, label=future.result()
+            if type(future.result())=='string':
+                print('fail')
+                exit()
+            imgs, label, errors, ids=future.result()
             all_images.append(imgs)
             all_labels.append(label)
+            all_errors.append(errors)
+            all_ids.append(ids)
 
     imgs = np.concatenate(all_images)
     labels = np.concatenate(all_labels)
+    ids = np.concatenate(ids)
     print(labels)
     imgs = np.transpose(imgs, (0,3,1,2))
     print(imgs.shape)
     print(labels.shape)
-    print(errors)
+    print(ids.shape)
+    print(all_errors)
     with open('errors.json', 'w') as f:
-        json.dump(errors, f)
-    np.savez(f"{num_pairs}.npz", imgs=imgs, labels=labels)
+        json.dump(all_errors, f)
+    np.savez(f"{num_pairs}.npz", imgs=imgs, labels=labels, ids=ids)
