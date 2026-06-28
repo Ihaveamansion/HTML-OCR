@@ -9,6 +9,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 import time
 
+NPZ_PATH='./npy/'
+
 
 pool=[]
 for i in range(65,91):
@@ -120,7 +122,7 @@ def generate_rgb(color_rand):
         rgb2=(color_rand.integers(0,8),color_rand.integers(0,8),color_rand.integers(0,8))
     return rgb1, rgb2, v[0], v[1]
 
-def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
+def generate_image(img_path, min_ln, max_ln, id_start, id_end):
     imgs=[]
     labels=[]
     errors=[]
@@ -146,16 +148,10 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
         except:
             errors.append(id)
             continue
-        rgb = np.asarray(Image.open(io.BytesIO(i)).resize((100,100)))
-        rgb = rgb.astype(np.float32)
+        rgb = np.asarray(Image.open(io.BytesIO(i)).resize((200,200)))
+        rgb = rgb.astype(np.uint8)
         rgb /= 32.0
         
-
-        # save images to separate folder for error diagnosis,
-        # but only if we have not already saved enough
-        if id < num_images:
-            with open(f"{img_path}/image_{id}.png", "wb") as f:
-                f.write(i)
 
         # add everything to arrays to save to npz later
         imgs.append(rgb)
@@ -168,14 +164,15 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end, num_images):
     p.stop()
     if (np.array(imgs).ndim)==(1):
         return 'fail'
-    return [imgs, labels, errors, ids]
+    return [imgs, labels, errors, ids],[id_start,id_end]
 
 if __name__=='__main__':
     img_path='imgs'
     min_ln=int(input('Min text len: '))
     max_ln=int(input('Max text len: '))
-    num_pairs=int(input('Num of pairs: '))
-    num_images=int(input('Num of images: '))
+    start=int(input('Num of pairs: '))
+    end=int(input('Num of pairs: '))
+    num_pairs=start-end
 
     os.makedirs(img_path, exist_ok=True)
 
@@ -196,14 +193,13 @@ if __name__=='__main__':
     chunk=(num_pairs/max_workers)
 
     for i in range(max_workers):
-        id_start=chunk*i
+        id_start=chunk*i+start
         split.append(
             [img_path,
             min_ln,
             max_ln,
             int(id_start),
-            int(id_start+chunk),
-            num_images]
+            int(id_start+chunk),]
         )
 
     all_images=[]
@@ -221,13 +217,15 @@ if __name__=='__main__':
             if type(result) is str:
                 print('fail')
                 exit()
-            imgs, label, errors, ids=result
-            all_images.append(imgs)
-            all_labels.append(label)
-            all_errors.append(errors)
+            imgs, label, errors, ids=result[0]
+            imgs = np.concatenate(imgs)
+            imgs = np.transpose(imgs, (0,3,1,2))
+            labels = np.concatenate(labels)
+            ids = np.concatenate(ids)
             all_ids.append(np.array(ids))
+            np.savez(NPZ_PATH+f"{result[1][0]}-{result[1][1]}.npy", imgs=imgs, labels=labels, ids=ids)
 
-    imgs = np.concatenate(all_images)
+"""    imgs = np.concatenate(all_images)
     labels = np.concatenate(all_labels)
     ids = np.concatenate(all_ids)
 
@@ -243,5 +241,4 @@ if __name__=='__main__':
     print(ids.shape)
     print(all_errors)
     with open('errors.json', 'w') as f:
-        json.dump(all_errors, f)
-    np.savez(f"{num_pairs}.npz", imgs=imgs, labels=labels, ids=ids)
+        json.dump(all_errors, f)"""

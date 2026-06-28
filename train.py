@@ -9,19 +9,71 @@ from sklearn.preprocessing import StandardScaler
 
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader, Dataset
+import bisect
+
+class ShardedDataset(Dataset):
+    def __init__(self, paths):
+        self.paths = paths
+
+        self.lengths = []
+        self.cumulative = []
+
+        total = 0
+        for path in paths:
+            with np.load(path) as data:
+                n = len(data["imgs"])
+            self.lengths.append(n)
+            total += n
+            self.cumulative.append(total)
+
+        self.loaded_shard = None
+        self.loaded_index = -1
+
+    def __len__(self):
+        return self.cumulative[-1]
+
+    def _load_shard(self, shard_idx):
+        if shard_idx == self.loaded_index:
+            return
+
+        data = np.load(self.paths[shard_idx])
+
+        self.loaded_shard = (
+            data["imgs"].astype(np.float32) / 8.0,
+            data["labels"],
+        )
+        self.loaded_index = shard_idx
+
+    def __getitem__(self, idx):
+        shard = bisect.bisect_right(self.cumulative, idx)
+
+        if shard == 0:
+            local = idx
+        else:
+            local = idx - self.cumulative[shard - 1]
+
+        self._load_shard(shard)
+
+        imgs, labels = self.loaded_shard
+
+        return (
+            torch.from_numpy(imgs[local]),
+            torch.from_numpy(labels[local]).long(),
+        )
 
 
 # =====================================================
 # Configuration
 # =====================================================
 
-NPZ_PATH = "100000.npz"
+NPY_PATH = "./npy"
 SAVE_HISTORY_JSON = "training_history"
 SAVE_MODEL = "model"
 SAVE_PLOT = "loss_curve"
 NUM_CLASSES = 94
-WEIGHT_DECAY = 1e-4
+WEIGHT_DECAY = 1e-6
+
 
 for path in [SAVE_HISTORY_JSON, SAVE_MODEL, SAVE_PLOT]:
     os.makedirs(path, exist_ok=True)
@@ -30,24 +82,13 @@ for path in [SAVE_HISTORY_JSON, SAVE_MODEL, SAVE_PLOT]:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 64
 EPOCHS = 100
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 1e-4
 BETA=(0.9, 0.999)
 
 Y_SHAPE=20
 
 model_dims =[
-    [[1024, 512, 256],[0.3,0.3,0]],
-"""    [1024,512],
-    [1024,256],
-    [512,512],
-    [512,256],
-    [512,128],
-    [256,256],
-    [256,128],
-    [256,64],
-    [2048],
-    [1024],
-    [512],"""
+    [[1024, 512, 256],[0, 0, 0]],
 ]
 
 
@@ -63,131 +104,64 @@ model_dims =[
 
 if input("\nSplit and scale dataset(1) Load existing(0): ").strip().lower() == "1":
 
-    print(f"Loading {NPZ_PATH}")
+    print(f"Loading from {NPY_PATH}")
 
-    data = np.load(NPZ_PATH)
+    paths=os.listdir(NPY_PATH)
+    input("Shards: "+len(paths))
+    train_size=int(input("Enter train shards: "))
+    validation_size=int(input("Enter validation shards: "))
+    split1=train_size
+    split2=train_size+validation_size
 
-    X = data["imgs"]
-    y = data["labels"]
+    with open('split.json','w') as f:
+        json.dump([split1, split2],f)
 
-    print("X shape:", X.shape)
-    print("y shape:", y.shape)
-
-    print("Splitting dataset...")
-
-    X_train, X_temp, y_train, y_temp = train_test_split(
-        X,
-        y,
-        test_size=0.20,
-        random_state=42,
-    )
-
-    X_val, X_test, y_val, y_test = train_test_split(
-        X_temp,
-        y_temp,
-        test_size=0.50,
-        random_state=42,
-    )
-
-    print("\nDataset split:")
-    print("X Train:", X_train.shape)
-    print("y Train:", y_train.shape)
-    print("X Val  :", X_val.shape)
-    print("y Val  :", y_val.shape)
-    print("X Test :", X_test.shape)
-    print("y Test :", y_test.shape)
-
-    print("\nScaling dataset...")
-
-# =====================================================
-# Scale Dataset
-# =====================================================
-
-    scaler = StandardScaler()
-    X_train = X_train.astype("float32") / 8.0
-    X_val = X_val.astype("float32") / 8.0
-    X_test = X_test.astype("float32") / 8.0
-
-    """X_train = X_train.reshape(len(X_train), -1)
-    X_val   = X_val.reshape(len(X_val), -1)
-    X_test  = X_test.reshape(len(X_test), -1)"""
-
-
-        
-    np.savez_compressed(
-        "dataset_split.npz",
-        X_train=X_train,
-        y_train=y_train,
-        X_val=X_val,
-        y_val=y_val,
-        X_test=X_test,
-        y_test=y_test,
-    )
 
 else:
-    data=np.load("dataset_split.npz")
-    X_train = data['X_train']
-    y_train = data['y_train']
+    data=json.load('split.json')
+    split1, split2=data
+    paths=os.listdir(NPY_PATH)
 
-    X_val = data['X_val']
-    y_val = data['y_val']
+shards=[]
+for path in paths:
+    path=path[:-4]
+    shards.append(path.split('-'))
+shards.sort(key=lambda x: x[0])
+paths=[]
+for shard in shards:
+    paths.append(NPY_PATH+'/'+str(shard[0])+'-'+str(shard[1])+'.npz')
 
-    X_test = data['X_test']
-    y_test = data['y_test']
-
-    print("\nDataset loaded from split npz:")
-    print("Train:", X_train.shape)
-    print("Val  :", X_val.shape)
-    print("Test :", X_test.shape)
-
+train = paths[:split1]
+val = paths[split1:split2]
+test = paths[split2:]
 
 # =====================================================
 # DataLoaders
 # =====================================================
 
-def make_loader(X, y, batch_size=64, shuffle=True):
+train_dataset = ShardedDataset(train)
+val_dataset = ShardedDataset(val)
+test_dataset = ShardedDataset(test)
 
-    X_tensor = torch.tensor(
-        X,
-        dtype=torch.float32,
-    )
-
-    y_tensor = torch.tensor(
-        y,
-        dtype=torch.long,
-    )
-
-    dataset = TensorDataset(
-        X_tensor,
-        y_tensor,
-    )
-
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-    )
-
-
-train_loader = make_loader(
-    X_train,
-    y_train,
-    BATCH_SIZE,
-    True,
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=True,
+    num_workers=4,
 )
 
-val_loader = make_loader(
-    X_val,
-    y_val,
-    BATCH_SIZE,
-    False,
+val_loader = DataLoader(
+    val_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+    num_workers=4,
 )
 
-test_loader = make_loader(
-    X_test,
-    y_test,
-    BATCH_SIZE,
-    False,
+test_loader = DataLoader(
+    test_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+    num_workers=4,
 )
 
 
@@ -208,16 +182,16 @@ class DynamicNet(nn.Module):
         ),]
         layers.append(nn.ReLU())
         layers.append(nn.MaxPool2d(2))
-        layers = [nn.Conv2d(
-            in_channels=3,
-            out_channels=32,
+        layers.append(nn.Conv2d(
+            in_channels=32,
+            out_channels=64,
             kernel_size=3,
             padding=1
-        ),]
+        ))
         layers.append(nn.ReLU())
-        layers.append(nn.MaxPool2d(2))
+        layers.append(nn.AdaptiveAvgPool2d((1, 1)))
         layers.append(nn.Flatten())
-        layers.append(nn.Linear(80000,layer_spec[0][0]))
+        layers.append(nn.Linear(64,layer_spec[0][0]))
         layers.append(nn.ReLU())
         layers.append(nn.Dropout(layer_spec[1][0]))
         for i in range(len(layer_spec[0])-1):
@@ -410,7 +384,7 @@ for m in range(len(model_dims)):
     plt.grid(True)
     plt.tight_layout()
     plt.savefig(
-        os.path.join(SAVE_PLOT, MODEL_INDEX),
+        os.path.join(SAVE_PLOT, MODEL_INDEX)+'.png',
         dpi=300,
     )
     plt.close()
