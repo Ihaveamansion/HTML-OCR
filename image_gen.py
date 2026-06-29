@@ -224,7 +224,11 @@ if __name__=='__main__':
             imgs, label, errors, ids=result[0]
             imgs = np.transpose(imgs, (0,3,1,2))
             all_ids.append(np.array(ids))
-            np.savez(NPZ_PATH+f"{result[1][0]}-{result[1][1]}.npz", imgs=imgs, labels=label, ids=ids)
+            path=NPZ_PATH+f"{result[1][0]}-{result[1][1]}.npz"
+            print(path+' completed')
+            print("Imgs shape: ", imgs.shape)
+            print("Labels shape: ", label.shape)
+            np.savez(path, imgs=imgs, labels=label, ids=ids)
 
 """    imgs = np.concatenate(all_images)
     labels = np.concatenate(all_labels)

@@ -17,7 +17,7 @@ NPZ_PATH = "./npz"
 SAVE_HISTORY_JSON = "training_history"
 SAVE_MODEL = "model"
 SAVE_PLOT = "loss_curve"
-NUM_CLASSES = 94
+NUM_CLASSES = 53
 WEIGHT_DECAY = 1e-6
 
 
@@ -40,54 +40,45 @@ model_dims =[
 
 class ShardedDataset(Dataset):
     def __init__(self, paths):
+        print(paths)
         self.paths = paths
 
         self.lengths = []
         self.cumulative = []
+        self.imgs = []
+        self.labels = []
 
         total = 0
         for path in paths:
             with np.load(path) as data:
+                print(path+' loaded')
                 n = len(data["imgs"])
+                self.imgs.append(data['imgs'].astype(np.float32) / 8.0)
+                labels=data['labels']
+                for word in range(len(labels)):
+                    for letter in range(len(labels[word])):
+                        l=labels[word][letter]
+                        if l<91:
+                            labels[word][letter]=labels[word][letter]-64
+                        else:
+                            labels[word][letter]=labels[word][letter]-81
+                self.labels.append(labels)
             self.lengths.append(n)
             total += n
             self.cumulative.append(total)
-
-        self.loaded_shard = None
-        self.loaded_index = -1
+        self.imgs=np.concatenate(self.imgs)
+        self.labels=np.concatenate(labels)
+        print(self.imgs.shape, self.imgs.max(), self.imgs.min())
+        print(self.labels.shape, self.labels.max(), self.imgs.min())
+        print(self.cumulative[-1])
 
     def __len__(self):
         return self.cumulative[-1]
 
-    def _load_shard(self, shard_idx):
-        if shard_idx == self.loaded_index:
-            return
-
-        data = np.load(self.paths[shard_idx])
-
-        self.loaded_shard = (
-            data["imgs"].astype(np.float32) / 8.0,
-            #change label characters into the right numbers
-            data["labels"],
-        )
-        self.loaded_index = shard_idx
 
     def __getitem__(self, idx):
-        shard = bisect.bisect_right(self.cumulative, idx)
 
-        if shard == 0:
-            local = idx
-        else:
-            local = idx - self.cumulative[shard - 1]
-
-        self._load_shard(shard)
-
-        imgs, labels = self.loaded_shard
-
-        return (
-            torch.from_numpy(imgs[local]),
-            torch.from_numpy(labels[local]).long(),
-        )
+        return self.imgs[idx],self.labels[idx]
 
 
 
@@ -199,7 +190,7 @@ if __name__=='__main__':
         print(f"Loading from {NPZ_PATH}")
 
         paths=os.listdir(NPZ_PATH)
-        input("Shards: "+str(len(paths)))
+        print("Shards: "+str(len(paths)))
         train_size=int(input("Enter train shards: "))
         validation_size=int(input("Enter validation shards: "))
         split1=train_size
@@ -219,10 +210,13 @@ if __name__=='__main__':
     for path in paths:
         path=path[:-4]
         shards.append(path.split('-'))
-    shards.sort(key=lambda x: x[0])
+    shards.sort(key=lambda x: int(x[0]))
     paths=[]
     for shard in shards:
         paths.append(NPZ_PATH+'/'+str(shard[0])+'-'+str(shard[1])+'.npz')
+    
+    for path in paths:
+        print(path)
 
     train = paths[:split1]
     val = paths[split1:split2]
@@ -241,6 +235,8 @@ if __name__=='__main__':
         batch_size=BATCH_SIZE,
         shuffle=True,
         num_workers=4,
+        pin_memory=True,
+        persistent_workers=True
     )
 
     val_loader = DataLoader(
@@ -248,6 +244,8 @@ if __name__=='__main__':
         batch_size=BATCH_SIZE,
         shuffle=False,
         num_workers=4,
+        pin_memory=True,
+        persistent_workers=True
     )
 
     test_loader = DataLoader(
@@ -255,7 +253,10 @@ if __name__=='__main__':
         batch_size=BATCH_SIZE,
         shuffle=False,
         num_workers=4,
+        pin_memory=True,
+        persistent_workers=True
     )
+
     for m in range(len(model_dims)):
         model = DynamicNet(
             model_dims[m]
