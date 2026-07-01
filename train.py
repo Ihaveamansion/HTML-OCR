@@ -20,6 +20,7 @@ SAVE_MODEL = "model"
 SAVE_PLOT = "loss_curve"
 NUM_CLASSES = 53
 WEIGHT_DECAY = 1e-6
+AAP_OUT = 4
 
 
 for path in [SAVE_HISTORY_JSON, SAVE_MODEL, SAVE_PLOT]:
@@ -78,40 +79,34 @@ class DynamicNet(nn.Module):
 
     def __init__(self, layer_spec):
         super().__init__()
-        
-        layers = [nn.Conv2d(
-            in_channels=3,
-            out_channels=32,
-            kernel_size=3,
-            padding=1
-        ),]
-        layers.append(nn.ReLU())
-        layers.append(nn.MaxPool2d(2))
-        layers.append(nn.Conv2d(
-            in_channels=32,
-            out_channels=64,
-            kernel_size=3,
-            padding=1
-        ))
-        layers.append(nn.ReLU())
-        layers.append(nn.AdaptiveAvgPool2d((4, 4)))
+        layers=[]
+        for i in range(len(layer_spec[0])):
+            layers.append(nn.Conv2d(
+                in_channels=3 if i==0 else int(layer_spec[0][i-1]),
+                out_channels=int(layer_spec[0][i]),
+                kernel_size=3,
+                padding=1
+            ))
+            layers.append(nn.ReLU())
+            if i!=len(layer_spec[0])-1:
+                layers.append(nn.MaxPool2d(2))
+        layers.append(nn.AdaptiveAvgPool2d((AAP_OUT, AAP_OUT)))
         layers.append(nn.Flatten())
-        layers.append(nn.Linear(1024,layer_spec[0][0]))
+        layers.append(nn.Linear(1024,layer_spec[1][0]))
         layers.append(nn.ReLU())
-        layers.append(nn.Dropout(layer_spec[1][0]))
-        for i in range(len(layer_spec[0])-1):
-
+        layers.append(nn.Dropout(layer_spec[2][0]))
+        for i in range(len(layer_spec[1])-1):
             layers.append(
                 nn.Linear(
-                    int(layer_spec[0][i]),
-                    int(layer_spec[0][i+1]),
+                    in_features = layer_spec[0][-1]*(AAP_OUT**2) if i == 0 else int(layer_spec[1][i]),
+                    out_features=int(layer_spec[1][i+1]),
                 )
             )
             layers.append(nn.ReLU())
-            layers.append(nn.Dropout(layer_spec[1][i+1]))
+            layers.append(nn.Dropout(layer_spec[2][i+1]))
 
         self.net = nn.Sequential(*layers[:-1])
-        self.final_layer = nn.Linear(int(layer_spec[0][-1]), NUM_CLASSES * Y_SHAPE)
+        self.final_layer = nn.Linear(int(layer_spec[1][-1]), NUM_CLASSES * Y_SHAPE)
 
     def forward(self, x):
         x = self.net(x)
