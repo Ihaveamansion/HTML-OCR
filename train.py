@@ -3,11 +3,12 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import random
+import gc
 
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader, Dataset
-import bisect
 
 # =====================================================
 # Configuration
@@ -34,51 +35,37 @@ BETA=(0.9, 0.999)
 Y_SHAPE=20
 
 model_dims =[
-    [[1024, 512, 256],[0, 0, 0]],
+    [[32,64],[1024, 512, 256],[0, 0, 0]],
 ]
 
+# =====================================================
+# Loader loads data from npz files on disk to RAM and scales it to [0,1] as training progresses. Labels are also converted to 0-52 range for training.
+# =====================================================
 
-class ShardedDataset(Dataset):
-    def __init__(self, paths):
-        print(paths)
-        self.paths = paths
+class NPZDataset(Dataset):
+    def __init__(self, path):
 
-        self.lengths = []
-        self.cumulative = []
-        self.imgs = []
-        self.labels = []
+        with np.load(path) as data:
 
-        total = 0
-        for path in paths:
-            with np.load(path) as data:
-                print(path+' loaded')
-                n = len(data["imgs"])
-                self.imgs.append(data['imgs'].astype(np.float32) / 8.0)
-                labels=data['labels']
-                for word in range(len(labels)):
-                    for letter in range(len(labels[word])):
-                        l=labels[word][letter]
-                        if l<91:
-                            labels[word][letter]=labels[word][letter]-64
-                        else:
-                            labels[word][letter]=labels[word][letter]-81
-                self.labels.append(labels)
-            self.lengths.append(n)
-            total += n
-            self.cumulative.append(total)
-        self.imgs=np.concatenate(self.imgs)
-        self.labels=np.concatenate(labels)
-        print(self.imgs.shape, self.imgs.max(), self.imgs.min())
-        print(self.labels.shape, self.labels.max(), self.imgs.min())
-        print(self.cumulative[-1])
+            self.imgs = data["imgs"].astype(np.float32) / 8.0
+
+            labels = data["labels"]
+
+            for word in range(len(labels)):
+                for letter in range(len(labels[word])):
+                    l = labels[word][letter]
+                    if l < 91:
+                        labels[word][letter] -= 64
+                    else:
+                        labels[word][letter] -= 81
+
+            self.labels = labels
 
     def __len__(self):
-        return self.cumulative[-1]
-
+        return len(self.imgs)
 
     def __getitem__(self, idx):
-
-        return self.imgs[idx],self.labels[idx]
+        return self.imgs[idx], self.labels[idx]
 
 
 
@@ -107,9 +94,9 @@ class DynamicNet(nn.Module):
             padding=1
         ))
         layers.append(nn.ReLU())
-        layers.append(nn.AdaptiveAvgPool2d((1, 1)))
+        layers.append(nn.AdaptiveAvgPool2d((4, 4)))
         layers.append(nn.Flatten())
-        layers.append(nn.Linear(64,layer_spec[0][0]))
+        layers.append(nn.Linear(1024,layer_spec[0][0]))
         layers.append(nn.ReLU())
         layers.append(nn.Dropout(layer_spec[1][0]))
         for i in range(len(layer_spec[0])-1):
@@ -159,18 +146,6 @@ def evaluate(loader):
     return total_loss / len(loader)
 
 
-# =====================================================
-# Example 3D Architecture Array
-# =====================================================
-#
-# Shape:
-# [model][layer][in,out]
-#
-# Example:
-# input -> 256 -> 128 -> 1
-#
-# =====================================================
-
 
 if __name__=='__main__':
     
@@ -182,7 +157,7 @@ if __name__=='__main__':
 
 
     # =====================================================
-    # Train / Val / Test Split (80/10/10)
+    # Train / Val / Test Split by shard
     # =====================================================
 
     if input("\nSplit and scale dataset(1) Load existing(0): ").strip().lower() == "1":
@@ -222,40 +197,6 @@ if __name__=='__main__':
     val = paths[split1:split2]
     test = paths[split2:]
 
-    # =====================================================
-    # DataLoaders
-    # =====================================================
-
-    train_dataset = ShardedDataset(train)
-    val_dataset = ShardedDataset(val)
-    test_dataset = ShardedDataset(test)
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-        num_workers=4,
-        pin_memory=True,
-        persistent_workers=True
-    )
-
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True,
-        persistent_workers=True
-    )
-
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True,
-        persistent_workers=True
-    )
 
     for m in range(len(model_dims)):
         model = DynamicNet(
@@ -299,27 +240,45 @@ if __name__=='__main__':
         }
 
         for epoch in range(EPOCHS):
+            random.shuffle(train)
             model.train()
             running_loss = 0.0
-            for X_batch, y_batch in train_loader:
-                X_batch = X_batch.to(device)
-                y_batch = y_batch.to(device)
-                preds = model(X_batch)
-                loss = criterion(
-                    preds,
-                    y_batch,
-                )
+            for shard_path in train:
+                train_dataset = NPZDataset(shard_path)
 
-                optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                optimizer.step()
-                running_loss += loss.item()
+                train_loader = DataLoader(
+                    train_dataset,
+                    batch_size=BATCH_SIZE,
+                    shuffle=True,
+                    num_workers=12,
+                    pin_memory=True,
+                )
+                for X_batch, y_batch in train_loader:
+                    X_batch = X_batch.to(device)
+                    y_batch = y_batch.to(device)
+                    preds = model(X_batch)
+                    loss = criterion(
+                        preds,
+                        y_batch,
+                    )
+
+                    optimizer.zero_grad(set_to_none=True)
+                    loss.backward()
+                    optimizer.step()
+                    running_loss += loss.item()
+                del train_dataset
+                del train_loader
+                gc.collect()
+
+            val_loss=0.0
+            for shard in val:
+                dataset = NPZDataset(shard)
+                loader = DataLoader(...)
+                val_loss+=evaluate(loader)
+
             train_loss = (
                 running_loss
                 / len(train_loader)
-            )
-            val_loss = evaluate(
-                val_loader
             )
             history["train_loss"].append(
                 train_loss
@@ -332,34 +291,9 @@ if __name__=='__main__':
                 f"Train: {train_loss:.6f} | "
                 f"Val: {val_loss:.6f}"
             )
-        # =====================================================
-        # Test Evaluation
-        # =====================================================
 
-        test_loss = evaluate(
-            test_loader
-        )
-        history["test_loss"] = float(
-            test_loss   
-        )
-        print(
-            f"\nFinal Test Loss: "
-            f"{test_loss:.6f}"
-        )
-        # =====================================================
-        # Save History JSON
-        # =====================================================
-
-        with open(
-            os.path.join(SAVE_HISTORY_JSON, MODEL_INDEX)+".json",
-            "w",
-        ) as f:
-            
-            json.dump(
-                history,
-                f,
-                indent=4,
-            )
+        with open(os.path.join(SAVE_HISTORY_JSON, MODEL_INDEX)+".json", "w", ) as f:
+            json.dump(history, f, indent=4)
         print(
             "Saved history:",
             os.path.join(SAVE_HISTORY_JSON, MODEL_INDEX)+".json",
@@ -409,15 +343,4 @@ if __name__=='__main__':
             "Saved model:",
             os.path.join(SAVE_MODEL, MODEL_INDEX)+".pkl",
         )
-        # =====================================================
-        # Example Loading Saved Scaler Later
-        # =====================================================
-        #
-        # with open("dataset_split.pkl", "rb") as f:
-        #     data = pickle.load(f)
-        #
-        # scaler = data["scaler"]
-        # X_new = scaler.transform(X_new)
-        #
-        # =====================================================
         print("\nTraining complete.")
