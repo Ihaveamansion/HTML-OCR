@@ -154,10 +154,13 @@ if __name__=='__main__':
     print(f"Detected cores: {num_cores}")
 
     #workers=int(input("Num of workers: "))
-    workers=100
+    workers=10
     max_workers = min(workers, num_cores)
+    if max_workers*SHARD_SIZE*3*RESOLUTION*RESOLUTION > mem.available:
+        print("Warning: The number of workers may exceed available RAM. Consider reducing other background processes, the number of workers, the shard limit to avoid running out of memory.")
 
     print(f"Using workers: {max_workers}")
+
     print(f"Running {num_shards*SHARD_SIZE} tasks\n")
 
     split=[]
