@@ -20,10 +20,37 @@ RESOLUTION=256
 #Shard size each worker generates before saving to npz, set to 20k images per shard, which is about 5GB of RAM
 #System is designed to run on a 9950x with 96GB of RAM, so 5GB is a safe limit to avoid hitting RAM cap
 SHARD_SIZE=25000
+#Limit number of times each worker attempts to generate the same shard
+ATTEMPT_LIMIT=2
 
 NPZ_PATH='./npz/'
 os.makedirs('./npz',exist_ok=True)
 
+def worker_manager(img_path, min_ln, max_ln, shard_start, shard_end):
+    for shard in range(shard_start,shard_end):
+        for attempt in range(ATTEMPT_LIMIT):
+            print(f"Generating shard {shard} (attempt {attempt+1}/{ATTEMPT_LIMIT})")
+            start_id=(shard)*SHARD_SIZE
+            end_id=(shard+1)*SHARD_SIZE
+            try:
+                result=generate_image(img_path, min_ln, max_ln, start_id, end_id)
+            except:
+                traceback.print_exc()
+                print(f'Shard {shard} failed')
+                continue
+            if type(result) is str:
+                print('fail')
+                exit()
+            imgs, label, errors, ids=result[0]
+            imgs=np.array(imgs)
+            label=np.array(label)
+            imgs = np.transpose(imgs, (0,3,1,2))
+            all_ids.append(np.array(ids))
+            path=NPZ_PATH+f"{result[1][0]}-{result[1][1]}.npz"
+            print(path+' completed')
+            print("Imgs shape: ", imgs.shape)
+            print("Labels shape: ", label.shape)
+            np.savez(path, imgs=imgs, labels=label, ids=ids)
 
 def make_html(text,rgb1,rgb2,font):
     # Produce an HTML string that renders the given text with
@@ -115,9 +142,9 @@ if __name__=='__main__':
     #end=int(input('End id: '))
     min_ln=1
     max_ln=20
-    start=0
-    end=5000000
-    num_pairs=end-start
+    shard_start=0
+    shard_end=200
+    num_shards=shard_end-shard_start
 
     # Set manually or use multiprocessing.cpu_count()
     num_cores = multiprocessing.cpu_count()
@@ -131,19 +158,19 @@ if __name__=='__main__':
     max_workers = min(workers, num_cores)
 
     print(f"Using workers: {max_workers}")
-    print(f"Running {num_pairs} tasks\n")
+    print(f"Running {num_shards*SHARD_SIZE} tasks\n")
 
     split=[]
-    chunk=(num_pairs/max_workers)
+    chunk=(num_shards/max_workers)
 
     for i in range(max_workers):
-        id_start=chunk*i+start
+        s=chunk*i+shard_start
         split.append(
             [img_path,
             min_ln,
             max_ln,
-            int(id_start),
-            int(id_start+chunk),]
+            int(s),
+            int(s+chunk),]
         )
 
     all_images=[]
@@ -152,30 +179,9 @@ if __name__=='__main__':
     all_ids=[]
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = [
-            executor.submit(generate_image, *arg)
+            executor.submit(worker_manager, *arg)
             for arg in split
         ]
-
-        for future in as_completed(futures):
-            try:
-                result=future.result()
-            except:
-                traceback.print_exc()
-                print('Task failed')
-                continue
-            if type(result) is str:
-                print('fail')
-                exit()
-            imgs, label, errors, ids=result[0]
-            imgs=np.array(imgs)
-            label=np.array(label)
-            imgs = np.transpose(imgs, (0,3,1,2))
-            all_ids.append(np.array(ids))
-            path=NPZ_PATH+f"{result[1][0]}-{result[1][1]}.npz"
-            print(path+' completed')
-            print("Imgs shape: ", imgs.shape)
-            print("Labels shape: ", label.shape)
-            np.savez(path, imgs=imgs, labels=label, ids=ids)
 
 """    imgs = np.concatenate(all_images)
     labels = np.concatenate(all_labels)
