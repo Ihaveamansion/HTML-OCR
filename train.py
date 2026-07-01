@@ -52,13 +52,10 @@ class NPZDataset(Dataset):
 
             labels = data["labels"]
 
-            for word in range(len(labels)):
-                for letter in range(len(labels[word])):
-                    l = labels[word][letter]
-                    if l < 91:
-                        labels[word][letter] -= 64
-                    else:
-                        labels[word][letter] -= 81
+            labels = labels.astype(np.int64)
+            upper = labels < 91
+            labels[upper] -= 64
+            labels[~upper] -= 81
 
             self.labels = labels
 
@@ -92,14 +89,11 @@ class DynamicNet(nn.Module):
                 layers.append(nn.MaxPool2d(2))
         layers.append(nn.AdaptiveAvgPool2d((AAP_OUT, AAP_OUT)))
         layers.append(nn.Flatten())
-        layers.append(nn.Linear(1024,layer_spec[1][0]))
-        layers.append(nn.ReLU())
-        layers.append(nn.Dropout(layer_spec[2][0]))
-        for i in range(len(layer_spec[1])-1):
+        for i in range(len(layer_spec[1])):
             layers.append(
                 nn.Linear(
-                    in_features = layer_spec[0][-1]*(AAP_OUT**2) if i == 0 else int(layer_spec[1][i]),
-                    out_features=int(layer_spec[1][i+1]),
+                    in_features = layer_spec[0][-1]*(AAP_OUT**2) if i == 0 else int(layer_spec[1][i-1]),
+                    out_features=int(layer_spec[1][i]),
                 )
             )
             layers.append(nn.ReLU())
@@ -126,9 +120,10 @@ def evaluate(loader):
     with torch.no_grad():
 
         for X_batch, y_batch in loader:
-            X_batch = X_batch.to(device)
+            X_batch = X_batch.to(device, non_blocking=True)
+            y_batch = y_batch.to(device, non_blocking=True)
+
             y_batch = y_batch.reshape(-1)
-            y_batch = y_batch.to(device)
             preds = model(X_batch)
             preds = preds.reshape(-1, NUM_CLASSES)
             loss = criterion(
@@ -208,7 +203,7 @@ if __name__=='__main__':
         print("\nModel:")
         print(model)
 
-        model.to(device)
+        model.to(device, non_blocking=True)
         # =====================================================
         # Loss / Optimizer
         # =====================================================
@@ -238,6 +233,7 @@ if __name__=='__main__':
             random.shuffle(train)
             model.train()
             running_loss = 0.0
+            num_batches = 0
             for shard_path in train:
                 train_dataset = NPZDataset(shard_path)
 
@@ -248,10 +244,15 @@ if __name__=='__main__':
                     num_workers=12,
                     pin_memory=True,
                 )
+
                 for X_batch, y_batch in train_loader:
-                    X_batch = X_batch.to(device)
-                    y_batch = y_batch.to(device)
+                    X_batch = X_batch.to(device, non_blocking=True)
+                    y_batch = y_batch.to(device, non_blocking=True)
+                    
+                    y_batch = y_batch.reshape(-1)
+
                     preds = model(X_batch)
+                    preds = preds.reshape(-1, NUM_CLASSES)
                     loss = criterion(
                         preds,
                         y_batch,
@@ -261,25 +262,27 @@ if __name__=='__main__':
                     loss.backward()
                     optimizer.step()
                     running_loss += loss.item()
+                    num_batches += 1
+
                 del train_dataset
                 del train_loader
-                gc.collect()
+            gc.collect()
 
             val_loss=0.0
             for shard in val:
                 dataset = NPZDataset(shard)
-                loader = DataLoader(...)
+                loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=12, pin_memory=True)
                 val_loss+=evaluate(loader)
 
             train_loss = (
                 running_loss
-                / len(train_loader)
+                / num_batches
             )
             history["train_loss"].append(
                 train_loss
             )
             history["val_loss"].append(
-                val_loss
+                val_loss/len(val)
             )
             print(
                 f"Epoch {epoch+1:3d}/{EPOCHS} | "
