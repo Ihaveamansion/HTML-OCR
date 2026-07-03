@@ -35,8 +35,10 @@ BETA=(0.9, 0.999)
 
 Y_SHAPE=20
 
+# This is a quick way to change model layer dimensions. Each entry in the list is a model configuration. The first sublist specifies the dimensions of the convolution layers, the second sublist is the dense layer dimensions, and the third sublist is the dropout rates for each dense layer.
+
 model_dims =[
-    [[32,64],[1024, 512, 256],[0, 0, 0]],
+    [[32,64],[1024, 512, 256],[0, 0]],
 ]
 
 # =====================================================
@@ -248,7 +250,7 @@ if __name__=='__main__':
                 for X_batch, y_batch in train_loader:
                     X_batch = X_batch.to(device, non_blocking=True)
                     y_batch = y_batch.to(device, non_blocking=True)
-                    
+
                     y_batch = y_batch.reshape(-1)
 
                     preds = model(X_batch)
