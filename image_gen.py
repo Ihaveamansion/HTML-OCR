@@ -4,7 +4,6 @@ from PIL import Image
 import io
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing
 import traceback
 import psutil
 from image_prop_utils import gen_img_prop
@@ -143,8 +142,7 @@ if __name__=='__main__':
     shard_end=200
     num_shards=shard_end-shard_start
 
-    # Set manually or use multiprocessing.cpu_count()
-    num_cores = multiprocessing.cpu_count()
+    num_cores = os.cpu_count()
 
     # Choose how many worker processes to use
 
