@@ -1,4 +1,4 @@
-*.txt
+
 imgs
 loss_curve
 model
@@ -12,4 +12,5 @@ imgs-real
 check
 ram.py
 __pycache__/
+TODO.txt
 flowcharts

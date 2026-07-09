@@ -28,7 +28,7 @@ for path in [SAVE_HISTORY_JSON, SAVE_MODEL, SAVE_PLOT]:
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-BATCH_SIZE = 64
+BATCH_SIZE = 1024
 EPOCHS = 100
 LEARNING_RATE = 1e-4
 BETA=(0.9, 0.999)

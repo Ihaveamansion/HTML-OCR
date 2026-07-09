@@ -1,13 +1,10 @@
-import json
 from playwright.sync_api import sync_playwright
 import os
 from PIL import Image
 import io
 import numpy as np
-import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
-import time
 import traceback
 import psutil
 from image_prop_utils import gen_img_prop
