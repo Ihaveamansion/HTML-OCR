@@ -13,7 +13,7 @@ for i in range(97,123):
 def gen_img_prop(id, min_ln, max_ln, fonts):
     str_ln=np.random.default_rng(id*100).integers(min_ln,max_ln)
     
-    text=gen_string_p1(str_ln, max_ln, np.random.default_rng(id*100+1))
+    text=gen_string_p1(str_ln, np.random.default_rng(id*100+1))
 
     rgb1, rgb2, ratio, is_text_darker=generate_rgb(np.random.default_rng(id*100+2))
 
@@ -39,10 +39,9 @@ def gen_string_p2(ln, str_rand):
 
 
 
-def gen_string_p1(ln, pad_to, str_rand):
+def gen_string_p1(ln, str_rand):
     s=gen_string_p2(ln, str_rand)
-    pad=pad_to-ln
-    return s+chr(64)*pad
+    return s
 
 def rel_luminance(rgb):
     def f(c):

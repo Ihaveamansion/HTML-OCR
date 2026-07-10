@@ -1,3 +1,5 @@
+import math
+
 from playwright.sync_api import sync_playwright
 import os
 from PIL import Image
@@ -23,7 +25,8 @@ MIN_LN=1
 MAX_LN=20
 SHARD_START=0
 SHARD_END=200
-WORKERS=10
+WORKERS=20
+PAD_TOKEN=64
 
 NPZ_PATH='./npz/'
 os.makedirs('./npz',exist_ok=True)
@@ -42,16 +45,16 @@ def worker_manager(img_path, min_ln, max_ln, shard_start, shard_end):
                 continue
             if type(result) is str:
                 print('fail')
-                exit()
+                raise RuntimeError("Shard failed")
             imgs, label, errors, ids=result[0]
             imgs=np.array(imgs)
             label=np.array(label)
             imgs = np.transpose(imgs, (0,3,1,2))
-            all_ids.append(np.array(ids))
             path=NPZ_PATH+f"{result[1][0]}-{result[1][1]}.npz"
             print(path+' completed')
             print("Imgs shape: ", imgs.shape)
             print("Labels shape: ", label.shape)
+            labels = np.full(MAX_LN, PAD_TOKEN)
             np.savez(path, imgs=imgs, labels=label, ids=ids)
 
 def make_html(text,rgb1,rgb2,font):
@@ -101,7 +104,7 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end):
 ])
     page = browser.new_page(viewport={"width": 1000, "height": 1000})
 
-    fonts=['Arial', 'Verdana', 'Helvetica', 'Times New Roman', 'Courier New', 'Tahoma', 'Trebuchet MS', 'Georgia', 'Garamond', 'Palatino Linotype','Courier New']
+    fonts=['Arial', 'Verdana', 'Helvetica', 'Times New Roman', 'Courier New', 'Tahoma', 'Trebuchet MS', 'Georgia', 'Garamond', 'Palatino Linotype']
 
     for id in (range(id_start,id_end)):
         # randly generate the text length, then the text,
@@ -115,7 +118,7 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end):
         try:
             i=render(make_html(prop[1],prop[2],prop[3],prop[6]), prop[7], page)
         except:
-            traceback.printexc()
+            traceback.print_exc()
             errors.append(id)
             continue
         rgb = np.asarray(Image.open(io.BytesIO(i)).resize((RESOLUTION,RESOLUTION)))
@@ -132,7 +135,7 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end):
     page.close()
     browser.close()
     p.stop()
-    if (np.array(imgs).ndim)==(1):
+    if len(imgs) == 0:
         return 'fail'
     return [imgs, labels, errors, ids],[id_start,id_end]
 
@@ -164,15 +167,20 @@ if __name__=='__main__':
 
     split=[]
     chunk=(num_shards/max_workers)
+    chunk = math.ceil(num_shards / max_workers)
 
     for i in range(max_workers):
-        s=chunk*i+shard_start
+        start = shard_start + i * chunk
+        end = min(start + chunk, shard_end)
+
+        if start >= end:
+            break
         split.append(
             [img_path,
             min_ln,
             max_ln,
-            int(s),
-            int(s+chunk),]
+            int(start),
+            int(end),]
         )
 
     all_images=[]
