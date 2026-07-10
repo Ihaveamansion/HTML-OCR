@@ -19,6 +19,12 @@ SHARD_SIZE=25000
 #Limit number of times each worker attempts to generate the same shard
 ATTEMPT_LIMIT=2
 
+MIN_LN=1
+MAX_LN=20
+SHARD_START=0
+SHARD_END=200
+WORKERS=10
+
 NPZ_PATH='./npz/'
 os.makedirs('./npz',exist_ok=True)
 
@@ -136,10 +142,10 @@ if __name__=='__main__':
     #max_ln=int(input('Max text len: '))
     #start=int(input('Start id: '))
     #end=int(input('End id: '))
-    min_ln=1
-    max_ln=20
-    shard_start=0
-    shard_end=200
+    min_ln=MIN_LN
+    max_ln=MAX_LN
+    shard_start=SHARD_START
+    shard_end=SHARD_END
     num_shards=shard_end-shard_start
 
     num_cores = os.cpu_count()
@@ -148,9 +154,7 @@ if __name__=='__main__':
 
     print(f"Detected cores: {num_cores}")
 
-    #workers=int(input("Num of workers: "))
-    workers=10
-    max_workers = min(workers, num_cores)
+    max_workers = min(WORKERS, num_cores)
     if max_workers*SHARD_SIZE*3*RESOLUTION*RESOLUTION > mem.available:
         print("Warning: The number of workers may exceed available RAM. Consider reducing other background processes, the number of workers, the shard limit to avoid running out of memory.")
 
