@@ -14,3 +14,4 @@ ram.py
 __pycache__/
 TODO.txt
 flowcharts
+sys_monitor.py
