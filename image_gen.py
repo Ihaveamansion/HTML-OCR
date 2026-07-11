@@ -1,4 +1,5 @@
 import math
+import time
 
 from playwright.sync_api import sync_playwright
 import os
@@ -25,16 +26,19 @@ MIN_LN=1
 MAX_LN=20
 SHARD_START=0
 SHARD_END=200
-WORKERS=20
+WORKERS=15
 PAD_TOKEN=64
 
-NPZ_PATH='./npz/'
-os.makedirs('./npz',exist_ok=True)
+NPZ_PATH='mnt/data/npz/'
+os.makedirs(NPZ_PATH,exist_ok=True)
 
 def worker_manager(img_path, min_ln, max_ln, shard_start, shard_end):
     for shard in range(shard_start,shard_end):
         for attempt in range(ATTEMPT_LIMIT):
             print(f"Generating shard {shard} (attempt {attempt+1}/{ATTEMPT_LIMIT})")
+            current_struct = time.localtime()
+            formatted_date = time.strftime("%Y-%m-%d %H:%M:%S", current_struct)
+            print(f"Time is: {formatted_date}")
             start_id=(shard)*SHARD_SIZE
             end_id=(shard+1)*SHARD_SIZE
             try:
@@ -91,8 +95,15 @@ def render(html, coords, page):
 
 
 def generate_image(img_path, min_ln, max_ln, id_start, id_end):
-    imgs=[]
-    labels=[]
+    imgs = np.empty(
+    (SHARD_SIZE, RESOLUTION, RESOLUTION, 3),
+    dtype=np.uint8
+)
+    labels=np.full(
+    (SHARD_SIZE,MAX_LN),
+    PAD_TOKEN,
+    dtype=np.uint8
+)
     errors=[]
     ids=[]
     
@@ -121,15 +132,19 @@ def generate_image(img_path, min_ln, max_ln, id_start, id_end):
             traceback.print_exc()
             errors.append(id)
             continue
-        rgb = np.asarray(Image.open(io.BytesIO(i)).resize((RESOLUTION,RESOLUTION)))
-        rgb = rgb/32
+        img = Image.open(io.BytesIO(i))
+        del i
+        img = img.resize((RESOLUTION, RESOLUTION))
+        rgb = np.array(img, dtype=np.uint8)
+        del img
+        rgb //=32
         rgb = rgb.astype(np.uint8)
         
 
         # add everything to arrays to save to npz later
-        imgs.append(rgb)
+        imgs[id-id_start] = rgb
         label = [ord(item) for item in prop[1]]
-        labels.append(np.array(label))
+        labels[id-id_start,:len(label)] = label
         ids.append(id)
 
     page.close()
