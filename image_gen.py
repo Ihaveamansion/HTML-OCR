@@ -29,7 +29,7 @@ SHARD_END=200
 WORKERS=15
 PAD_TOKEN=64
 
-NPZ_PATH='mnt/data/npz/'
+NPZ_PATH='./npz/'
 os.makedirs(NPZ_PATH,exist_ok=True)
 
 def worker_manager(img_path, min_ln, max_ln, shard_start, shard_end):
