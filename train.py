@@ -38,7 +38,7 @@ Y_SHAPE=20
 # This is a quick way to change model layer dimensions. Each entry in the list is a model configuration. The first sublist specifies the dimensions of the convolution layers, the second sublist is the dense layer dimensions, and the third sublist is the dropout rates for each dense layer.
 
 model_dims =[
-    [[32,64],[1024, 512, 256],[0, 0]],
+    [[32,64],[1024, 512, 256],[0, 0, 0]],
 ]
 
 # =====================================================
@@ -99,7 +99,8 @@ class DynamicNet(nn.Module):
                 )
             )
             layers.append(nn.ReLU())
-            layers.append(nn.Dropout(layer_spec[2][i+1]))
+            dropout_rate = float(layer_spec[2][i]) if i < len(layer_spec[2]) else 0.0
+            layers.append(nn.Dropout(dropout_rate))
 
         self.net = nn.Sequential(*layers[:-1])
         self.final_layer = nn.Linear(int(layer_spec[1][-1]), NUM_CLASSES * Y_SHAPE)
