@@ -28,7 +28,7 @@ for path in [SAVE_HISTORY_JSON, SAVE_MODEL, SAVE_PLOT]:
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-BATCH_SIZE = 1024
+BATCH_SIZE = 512
 EPOCHS = 100
 LEARNING_RATE = 1e-4
 BETA=(0.9, 0.999)
@@ -245,7 +245,7 @@ if __name__=='__main__':
                     batch_size=BATCH_SIZE,
                     shuffle=True,
                     num_workers=12,
-                    pin_memory=True,
+                    pin_memory=False,
                 )
 
                 for X_batch, y_batch in train_loader:
@@ -274,7 +274,11 @@ if __name__=='__main__':
             val_loss=0.0
             for shard in val:
                 dataset = NPZDataset(shard)
-                loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=12, pin_memory=True)
+                loader = DataLoader(dataset,
+                                    batch_size=BATCH_SIZE,
+                                    shuffle=False,
+                                    num_workers=12,
+                                    pin_memory=False)
                 val_loss+=evaluate(loader)
 
             train_loss = (
