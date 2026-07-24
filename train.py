@@ -230,6 +230,7 @@ if __name__=='__main__':
         history = {
             "train_loss": [],
             "val_loss": [],
+            "test_loss": [],
         }
 
         for epoch in range(EPOCHS):
@@ -244,7 +245,7 @@ if __name__=='__main__':
                     train_dataset,
                     batch_size=BATCH_SIZE,
                     shuffle=True,
-                    num_workers=12,
+                    num_workers=24,
                     pin_memory=False,
                 )
 
@@ -271,31 +272,58 @@ if __name__=='__main__':
                 del train_loader
             gc.collect()
 
-            val_loss=0.0
-            for shard in val:
-                dataset = NPZDataset(shard)
-                loader = DataLoader(dataset,
-                                    batch_size=BATCH_SIZE,
-                                    shuffle=False,
-                                    num_workers=12,
-                                    pin_memory=False)
-                val_loss+=evaluate(loader)
+            # Validation loss (per-shard). Guard against empty validation set.
+            val_loss = 0.0
+            if len(val) > 0:
+                for shard in val:
+                    dataset = NPZDataset(shard)
+                    loader = DataLoader(
+                        dataset,
+                        batch_size=BATCH_SIZE,
+                        shuffle=False,
+                        num_workers=4,
+                        pin_memory=False,
+                    )
+                    val_loss += evaluate(loader)
+                val_loss = val_loss / len(val)
+            else:
+                val_loss = float('nan')
 
-            train_loss = (
-                running_loss
-                / num_batches
-            )
-            history["train_loss"].append(
-                train_loss
-            )
-            history["val_loss"].append(
-                val_loss/len(val)
-            )
+
+            # Train loss: protect against zero batches (e.g., empty train set)
+            if num_batches > 0:
+                train_loss = running_loss / num_batches
+            else:
+                train_loss = float('nan')
+
+            history["train_loss"].append(train_loss)
+            history["val_loss"].append(val_loss)
+
             print(
                 f"Epoch {epoch+1:3d}/{EPOCHS} | "
                 f"Train: {train_loss:.6f} | "
-                f"Val: {val_loss:.6f}"
+                f"Val: {val_loss:.6f} | "
             )
+
+        # Evaluate test set only after training completes (do NOT use test during training)
+        if len(test) > 0:
+            test_loss_final = 0.0
+            for shard in test:
+                dataset = NPZDataset(shard)
+                loader = DataLoader(
+                    dataset,
+                    batch_size=BATCH_SIZE,
+                    shuffle=False,
+                    num_workers=4,
+                    pin_memory=False,
+                )
+                test_loss_final += evaluate(loader)
+            test_loss_final = test_loss_final / len(test)
+        else:
+            test_loss_final = float('nan')
+
+        # Store final test loss in history (single end-of-training evaluation)
+        history["test_loss"].append(test_loss_final)
 
         with open(os.path.join(SAVE_HISTORY_JSON, MODEL_INDEX)+".json", "w", ) as f:
             json.dump(history, f, indent=4)
@@ -303,6 +331,7 @@ if __name__=='__main__':
             "Saved history:",
             os.path.join(SAVE_HISTORY_JSON, MODEL_INDEX)+".json",
         )
+        print(f"Final test loss: {test_loss_final:.6f}")
         # =====================================================
         # Save Plot
         # =====================================================
